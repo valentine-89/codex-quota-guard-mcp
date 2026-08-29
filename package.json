@@ -1,0 +1,44 @@
+{
+  "name": "codex-quota-guard-mcp",
+  "version": "0.1.0",
+  "description": "Shared, adaptive Codex quota guard and checkpoint MCP server",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "bin": {
+    "codex-quota-guard-mcp": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "npm run clean",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "lint": "eslint .",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "doctor": "node dist/main.js --doctor",
+    "acceptance:live": "node scripts/live-acceptance.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.5.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.3",
+    "eslint": "10.9.1",
+    "globals": "17.11.0",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.68.0"
+  }
+}

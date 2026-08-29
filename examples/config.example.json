@@ -1,0 +1,14 @@
+{
+  "$schema": "./config.schema.json",
+  "warningRemainingPercent": 20,
+  "deferRemainingPercent": 10,
+  "appServerTimeoutMs": 15000,
+  "leaseDurationMs": 30000,
+  "resetGraceMs": 30000,
+  "ttlMs": {
+    "high": 900000,
+    "medium": 300000,
+    "warning": 120000,
+    "low": 60000
+  }
+}

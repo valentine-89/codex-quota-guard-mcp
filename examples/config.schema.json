@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/valentine-89/codex-quota-guard-mcp/blob/main/examples/config.schema.json",
+  "title": "Codex Quota Guard MCP configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "stateDir": { "type": "string", "minLength": 1 },
+    "codexHome": { "type": "string", "minLength": 1 },
+    "codexCommand": { "type": "string", "minLength": 1 },
+    "warningRemainingPercent": { "type": "number", "minimum": 1, "maximum": 99, "default": 20 },
+    "deferRemainingPercent": { "type": "number", "minimum": 1, "maximum": 99, "default": 10 },
+    "appServerTimeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000, "default": 15000 },
+    "leaseDurationMs": { "type": "integer", "minimum": 5000, "maximum": 120000, "default": 30000 },
+    "resetGraceMs": { "type": "integer", "minimum": 0, "maximum": 300000, "default": 30000 },
+    "ttlMs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "high": { "type": "integer", "minimum": 60000, "default": 900000 },
+        "medium": { "type": "integer", "minimum": 30000, "default": 300000 },
+        "warning": { "type": "integer", "minimum": 30000, "default": 120000 },
+        "low": { "type": "integer", "minimum": 30000, "default": 60000 }
+      }
+    }
+  }
+}
