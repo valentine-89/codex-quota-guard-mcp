@@ -1,6 +1,6 @@
 # Codex Quota Guard MCP 0.6.0
 
-Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official `codex app-server` interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
+Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
 ## Security and lifecycle guarantees
 
@@ -21,9 +21,11 @@ Windows 10/11 on physical hardware or in a VM is treated identically. Windows x6
 
 ## Install
 
-This package is private and is installed from its GitHub checkout, not npm:
+This project is not published to npm. Install it from its public GitHub checkout:
 
-```text
+```powershell
+git clone https://github.com/valentine-89/codex-quota-guard-mcp.git
+cd codex-quota-guard-mcp
 npm ci
 npm run check
 node scripts/install.mjs
@@ -63,15 +65,16 @@ Do not call the Guard before every shell command, small file read, or trivial ed
 
 ## Verification
 
-```text
+```powershell
 npm run check
 npm run acceptance:install
-npm run acceptance:shared
 npm audit
 npm pack --dry-run
 ```
 
-CI runs the full check, disposable installer acceptance, six-concurrent-connector singleton acceptance, and package dry run on Node 22/24 for Windows x64/ARM64, Ubuntu x64/ARM64, and macOS Intel/Apple Silicon.
+These portable checks run on Node 22/24 for Windows x64/ARM64, Ubuntu x64/ARM64, and macOS Intel/Apple Silicon in CI. `npm run acceptance:live` additionally verifies the currently installed registration and live quota on a signed-in host.
+
+`npm run acceptance:shared` is a maintainer-only Windows desktop acceptance. It requires `CODEX_HOME`, the current real task ID in `QUOTA_PROBE_TASK_ID`, and an inherited desktop scheduler capability; it is not a portable installation check.
 
 Release acceptance is recorded by guest OS. A Windows VM is simply a Windows acceptance result; there are no hypervisor-specific branches.
 

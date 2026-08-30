@@ -5,6 +5,15 @@
   "type": "module",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/valentine-89/codex-quota-guard-mcp.git"
+  },
+  "homepage": "https://github.com/valentine-89/codex-quota-guard-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/valentine-89/codex-quota-guard-mcp/issues"
+  },
+  "keywords": ["codex", "mcp", "quota", "checkpoint", "model-context-protocol"],
   "bin": {
     "codex-quota-guard-mcp": "dist/main.js"
   },

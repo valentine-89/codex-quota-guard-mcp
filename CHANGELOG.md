@@ -4,6 +4,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Fixed
+
+- Made live acceptance use the installed managed connector instead of the disabled legacy direct-stdio entrypoint.
+- Separated portable verification from the Windows desktop-only shared-core acceptance requirements.
+
+### Documentation
+
+- Added complete GitHub checkout instructions, package metadata, official app-server documentation, and CI dependency auditing.
+
 ## [0.6.0] - 2026-08-30
 
 ### Changed
@@ -20,11 +29,11 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 ### Documentation
 
 - Consolidated installation, managed runtime, Windows/WSL and monitor guidance around
-  the supported v0.5.1 deployment. Removed completed implementation plans and the
+  the supported v0.6 deployment. Removed completed implementation plans and the
   superseded experimental Shared HTTP/scheduler investigation documents.
 - Removed obsolete `.cmd` launchers and the pre-managed HTTP transport probe from the
-  distributed source package. Managed Windows registration uses direct `node.exe` and
-  the no-console least-privilege supervisor; direct stdio remains supported elsewhere.
+  distributed source package. Managed registration uses direct Node and the on-demand
+  authenticated connector; the legacy direct full-runtime stdio path is disabled.
 
 ## [0.5.1] - 2026-08-30
 
