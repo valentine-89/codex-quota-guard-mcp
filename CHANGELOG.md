@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Added
+
+- Managed shared-core bootstrap using protected local settings, authenticated health
+  identity and existing exclusive core ownership; no per-task full-guard fallback.
+- Windows per-user logon/five-minute health supervisor with least privilege and no
+  model invocation. OS-selected installation port avoids reserved Windows ranges.
+- In-memory desktop capability renewal through a bounded authenticated endpoint,
+  verified with the shipped scheduler server and serialized with active dispatch.
+- Explicit managed installer preserving other Codex configuration and existing
+  sessions; production migration and live capability acceptance remain pending.
+- Four managed regression tests, passing with the82-test Windows/WSL suite.
+
 ## [0.4.0] - 2026-08-30
 
 ### Added

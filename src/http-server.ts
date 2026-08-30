@@ -13,6 +13,7 @@ export interface HttpServerOptions {
   maxBodyBytes?: number;
   requestTimeoutMs?: number;
   diagnostics?: () => object;
+  bindDesktop?: (pipePath: string, taskId: string) => Promise<boolean>;
 }
 
 /** One shared backend, but request-scoped protocol objects: no unbounded session map. */
@@ -44,11 +45,13 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
     if (req.url === "/health" && req.method === "GET") {
       reply(res, 200, { service: "codex-quota-guard", activeRequests: active, ...options.diagnostics?.() }); return;
     }
-    if (req.url !== "/mcp") { reply(res, 404); return; }
+    const desktopBinding = req.url === "/desktop-session" && options.bindDesktop !== undefined;
+    if (req.url !== "/mcp" && !desktopBinding) { reply(res, 404); return; }
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); reply(res, 405); return; }
     if (active >= maxRequests) { res.setHeader("Retry-After", "1"); reply(res, 503); return; }
     if (!/^application\/json(?:\s*;|$)/i.test(req.headers["content-type"] ?? "")) { reply(res, 415); return; }
-    if (Number(req.headers["content-length"] ?? 0) > maxBody) { reply(res, 413); return; }
+    const bodyLimit = desktopBinding ? Math.min(maxBody, 4096) : maxBody;
+    if (Number(req.headers["content-length"] ?? 0) > bodyLimit) { reply(res, 413); return; }
     active++;
     let protocol: McpServer | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
@@ -60,13 +63,20 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
       for await (const data of req) {
         const chunk = Buffer.from(data as Uint8Array);
         bytes += chunk.length;
-        if (bytes > maxBody) { reply(res, 413); return; }
+        if (bytes > bodyLimit) { reply(res, 413); return; }
         chunks.push(chunk);
       }
       let body: unknown;
       try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
       catch { reply(res, 400); return; }
       if (res.destroyed || res.writableEnded) return;
+      if (desktopBinding) {
+        const input = body as Record<string, unknown> | null;
+        if (!input || Array.isArray(input) || Object.keys(input).sort().join(",") !== "pipePath,taskId"
+          || typeof input.pipePath !== "string" || typeof input.taskId !== "string") { reply(res, 400); return; }
+        const accepted = await options.bindDesktop!(input.pipePath, input.taskId);
+        reply(res, accepted ? 200 : 403, { accepted }); return;
+      }
       protocol = createProtocol();
       transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
       // SDK HTTP callbacks explicitly include undefined, unlike its Transport interface.

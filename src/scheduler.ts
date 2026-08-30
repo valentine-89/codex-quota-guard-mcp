@@ -19,16 +19,19 @@ export interface SchedulerRpc {
   close(): Promise<void>;
 }
 
+interface ContextSchedulerRpc extends SchedulerRpc { verifyContext(taskId: string): Promise<void>; }
+
 /** Delegates transport/authorization to the installed OpenAI server; no private IPC. */
 export class DesktopSchedulerRpc implements SchedulerRpc {
   private client: Client | undefined;
   private transport: StdioClientTransport | undefined;
-  constructor(private readonly serverPath: string) {}
+  constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
     const client = new Client({ name: "quota-guard-monitor", version: "0.3.0" });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
-      env: Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), stderr: "pipe" });
+      env: Object.fromEntries(Object.entries(this.environment).filter((entry): entry is [string, string] => entry[1] !== undefined)), stderr: "pipe" });
+    transport.stderr?.on("data", () => { /* Drain without persisting capability-bearing diagnostics. */ });
     this.transport = transport;
     const timeout = setTimeout(() => { void transport.close(); }, 15_000);
     try {
@@ -64,6 +67,49 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   async close(): Promise<void> {
     await this.transport?.close(); this.client = undefined; this.transport = undefined;
   }
+  async verifyContext(taskId: string): Promise<void> {
+    await this.ready();
+    if (this.client!.getServerVersion()?.name !== "codex-app-tools") throw new Error("SCHEDULER_IDENTITY_UNSUPPORTED");
+    const result = await this.client!.callTool({ name: "list_threads", arguments: { limit: 1 },
+      _meta: { threadId: taskId } }, undefined, { timeout: 15_000 });
+    if (result.isError) throw new Error("SCHEDULER_CONTEXT_REJECTED");
+  }
+}
+
+/** Serializes replacement with dispatch; a reconnect never closes an in-flight RPC. */
+export class RenewableSchedulerRpc implements SchedulerRpc {
+  private current: ContextSchedulerRpc;
+  private pipe: string | undefined = process.env.CODEX_APP_TOOLS_PIPE_PATH;
+  private verifiedPipe: string | undefined;
+  private tail: Promise<unknown> = Promise.resolve();
+  private stopped = false;
+  constructor(private readonly serverPath: string,
+    private readonly factory: (environment: NodeJS.ProcessEnv) => ContextSchedulerRpc = env => new DesktopSchedulerRpc(serverPath, env)) {
+    this.current = factory(process.env);
+  }
+  available(): boolean { return !!this.pipe && isAbsolute(this.serverPath) && existsSync(this.serverPath) && !this.stopped; }
+  private serialize<T>(action: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(action); this.tail = result.catch(() => undefined); return result;
+  }
+  ready(): Promise<void> { return this.serialize(() => { if (this.stopped) throw new Error("SCHEDULER_CLOSED"); return this.current.ready(); }); }
+  call(args: Record<string, unknown>, taskId: string): Promise<boolean> {
+    return this.serialize(() => { if (this.stopped) throw new Error("SCHEDULER_CLOSED"); return this.current.call(args, taskId); });
+  }
+  bind(pipePath: string, taskId: string): Promise<boolean> {
+    // This bridge is Windows-hosted. Never accept URLs, executable paths or remote pipes.
+    if (!pipePath.startsWith("\\\\.\\pipe\\") || pipePath.length > 1024 || /[\r\n\0]/.test(pipePath)
+      || !/^[a-f0-9-]{36}$/i.test(taskId)) return Promise.resolve(false);
+    return this.serialize(async () => {
+      if (this.stopped) return false;
+      if (pipePath === this.verifiedPipe) return true;
+      const candidate = this.factory({ ...process.env, CODEX_APP_TOOLS_PIPE_PATH: pipePath });
+      try { await candidate.verifyContext(taskId); }
+      catch { await candidate.close(); return false; }
+      await this.current.close(); this.current = candidate; this.pipe = pipePath; this.verifiedPipe = pipePath;
+      return true;
+    });
+  }
+  close(): Promise<void> { this.stopped = true; return this.serialize(() => this.current.close()); }
 }
 
 /** Read only exact attached files. All writes go through the host's automation tool. */

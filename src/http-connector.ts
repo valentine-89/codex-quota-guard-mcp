@@ -2,19 +2,50 @@
 // Intentionally no service/SQLite/MCP SDK imports. Each connection is only a wire adapter.
 import { once } from "node:events";
 import { ProcessLifetime, parentIsAlive } from "./lifetime.js";
+import { bindManagedDesktop, ensureManagedCore, managedUrl, type ManagedSettings } from "./managed.js";
 
 async function main() {
+  const parent = process.ppid;
+  const controller = new AbortController();
+  const lifetime = new ProcessLifetime({ input: process.stdin, output: process.stdout,
+    parentAlive: () => parentIsAlive(parent), cleanup: async () => { controller.abort(); },
+    exit: code => process.exit(code) });
+  const settingsPath = process.env.CODEX_QUOTA_GUARD_MANAGED_SETTINGS;
+  let managed: ManagedSettings | undefined;
+  let lastHealth = 0;
+  let lastBind = 0;
+  let boundTask: string | undefined;
+  let preparing: Promise<void> | undefined;
+  const prepare = (taskId = process.env.CODEX_THREAD_ID): Promise<void> => {
+    if (!settingsPath) return Promise.resolve();
+    // A task ID learned after initialize still needs a binding attempt.
+    if (preparing) return preparing.then(() => prepare(taskId));
+    const checkHealth = !managed || Date.now() - lastHealth >= 10_000;
+    const checkBinding = taskId && (taskId !== boundTask || Date.now() - lastBind >= 60_000);
+    if (!checkHealth && !checkBinding) return Promise.resolve();
+    preparing = (async () => {
+      if (checkHealth) {
+        managed = await ensureManagedCore(settingsPath);
+        lastHealth = Date.now();
+      }
+      if (!managed) throw new Error("MANAGED_CORE_UNAVAILABLE");
+      process.env.CODEX_QUOTA_GUARD_HTTP_URL = managedUrl(managed);
+      process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN = managed.token;
+      // Failure retains quota tools and the original automation schedule; no capability guessing.
+      if (checkBinding) {
+        await bindManagedDesktop(managed, taskId).catch(() => false);
+        boundTask = taskId; lastBind = Date.now();
+      }
+    })().finally(() => { preparing = undefined; });
+    return preparing;
+  };
+  await prepare();
   const url = new URL(process.env.CODEX_QUOTA_GUARD_HTTP_URL ?? "");
   const token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== "/mcp"
     || url.username || url.password || url.search || url.hash || !/^[a-zA-Z0-9_-]{32,256}$/.test(token)) {
     throw new Error("INVALID_LOCAL_ENDPOINT");
   }
-  const parent = process.ppid;
-  const controller = new AbortController();
-  const lifetime = new ProcessLifetime({ input: process.stdin, output: process.stdout,
-    parentAlive: () => parentIsAlive(parent), cleanup: async () => { controller.abort(); },
-    exit: code => process.exit(code) });
   let active = 0, buffer = Buffer.alloc(0), protocolVersion = "2025-11-25";
   let output = Promise.resolve(), queuedOutput = 0;
   const write = (message: unknown) => {
@@ -38,6 +69,8 @@ async function main() {
     }
     active++;
     try {
+      const params = message.params as { arguments?: { taskId?: string } } | undefined;
+      await prepare(params?.arguments?.taskId ?? process.env.CODEX_THREAD_ID);
       const response = await fetch(url, { method: "POST", redirect: "error",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
           Accept: "application/json, text/event-stream", "MCP-Protocol-Version": protocolVersion },
@@ -50,6 +83,8 @@ async function main() {
       }
       if (message.method === "notifications/initialized") lifetime.markInitialized();
     } catch {
+      lastHealth = 0;
+      lastBind = 0;
       // Never retry mutating calls automatically: response loss is not proof of non-execution.
       if (!controller.signal.aborted && id !== undefined) await write({ jsonrpc: "2.0", id,
         error: { code: -32000, message: "Shared core unavailable or response unconfirmed; no fallback process was started" } });
@@ -73,4 +108,4 @@ async function main() {
   process.once("SIGTERM", () => lifetime.stop("signal"));
   if (process.stdin.destroyed || process.stdin.readableEnded) lifetime.stop("stdin_close");
 }
-main().catch(() => { process.stderr.write("quota-guard: connector requires an authenticated loopback HTTP core\n"); process.exitCode = 1; });
+main().catch(() => { process.stderr.write("quota-guard: connector requires an authenticated loopback HTTP core\n"); process.exit(1); });

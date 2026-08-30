@@ -3,9 +3,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { profileKey } from "./store.js";
 import { acquireCoreLock } from "./core-lock.js";
-import { createRuntime } from "./runtime.js";
-import { createMcpServer } from "./mcp-server.js";
-import { startHttpServer } from "./http-server.js";
+import { readManagedSettings } from "./managed.js";
 
 async function main() {
   const token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
@@ -13,11 +11,22 @@ async function main() {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("HTTP_PORT_REQUIRED: choose a loopback port from 1024 to 65535");
   const config = loadConfig();
   const release = acquireCoreLock(join(config.stateDir, `core-${profileKey(config.codexHome)}.sqlite`));
+  // Startup contenders exit on the lock before loading the full MCP runtime.
+  const [{ createRuntime }, { createMcpServer }, { startHttpServer }] = await Promise.all([
+    import("./runtime.js"), import("./mcp-server.js"), import("./http-server.js"),
+  ]);
+  const managed = process.env.CODEX_QUOTA_GUARD_MANAGED_SETTINGS
+    ? readManagedSettings(process.env.CODEX_QUOTA_GUARD_MANAGED_SETTINGS) : undefined;
+  if (managed && (managed.token !== token || managed.port !== port || managed.guardConfig !== process.env.CODEX_QUOTA_GUARD_CONFIG)) {
+    release(); throw new Error("MANAGED_CORE_CONFIG_MISMATCH");
+  }
   const runtime = createRuntime(config);
   let closeHttp: (() => Promise<void>) | undefined;
   try {
     const http = await startHttpServer(() => createMcpServer(runtime.service), { token, port,
-      diagnostics: () => ({ pid: process.pid, mode: "shared-http", monitor: runtime.service.monitorStatus() }) });
+      diagnostics: () => ({ pid: process.pid, mode: "shared-http", installationId: managed?.installationId ?? null,
+        monitor: runtime.service.monitorStatus() }),
+      ...(managed ? { bindDesktop: runtime.bindDesktop } : {}) });
     closeHttp = http.close;
     runtime.service.setRuntimeMode("shared-http");
     // Server lifetime is independent of initialize/EOF/client disconnect.

@@ -1,5 +1,9 @@
 # Shared HTTP core (experimental, v0.4)
 
+Follow-up implementation: [managed bootstrap, supervision and capability renewal](MANAGED_CORE.md).
+The status below records the original v0.4 transport acceptance; managed deployment
+has its own explicit acceptance checklist and does not inherit untested claims.
+
 Status: transport, shared state, bounded resource handling, no-client timer and
 Windows-hosted WSL connector verified. **Not the default installation.** No service,
 startup registration, auto-bootstrap, or migration of existing connections is installed.

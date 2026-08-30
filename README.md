@@ -41,6 +41,10 @@ tested configurations, workspace path conversion, and scheduler limitations.
 
 ## Install from source
 
+For the shared-core follow-up, see [managed Windows/WSL deployment](docs/MANAGED_CORE.md).
+Its installer and per-user recovery are being verified separately from the stable
+stdio installation below; do not silently change an existing transport or fallback policy.
+
 ```powershell
 git clone https://github.com/valentine-89/codex-quota-guard-mcp.git
 cd codex-quota-guard-mcp
