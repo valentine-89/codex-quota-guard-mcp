@@ -8,6 +8,25 @@ Confirm `codex --version` works in the same environment as the MCP process. Set 
 
 The installed app-server lacks `account/rateLimits/read`. Upgrade Codex and start a new MCP session. Direct credential/OAuth fallback is intentionally unsupported.
 
+## `APP_SERVER_EXITED` or failure after switching Windows/WSL
+
+The official child process exited before replying. Inspect its bounded, redacted
+error rather than repeatedly increasing the timeout. Typical causes include a
+Windows npm shim invoked by Linux Node, invalid config, or opening an active
+Windows Codex state directory from Linux. The guard reports the actual exit cause
+and still observes shared backoff.
+
+Follow [Windows and WSL](WINDOWS_AND_WSL.md): either keep the whole guard/app-server
+on Windows through the explicit launcher, or use Linux Node/Codex with a separate
+Linux ChatGPT login and Linux-local state. Do not copy auth files, modify Codex's
+database, or restart unrelated tasks. A Linux API-key login does not establish
+access to the Windows ChatGPT subscription quota.
+
+If Windows paths contain spaces, use the documented launcher arguments and
+absolute executable paths. The app-server adapter handles cmd/bat quoting without
+PowerShell profile scripts. From WSL, pass a Windows-form workspace root to a
+Windows-hosted guard using `wslpath -w`; use the stored root when resuming.
+
 ## Quota is unavailable or stale
 
 Run `node dist/main.js --doctor`. Inspect `backoffUntil`, `refreshInProgress`, and the bounded error code. Do not repeatedly restart the server: shared backoff exists to protect the upstream account service.

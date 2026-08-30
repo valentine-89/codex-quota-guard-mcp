@@ -1,5 +1,6 @@
 ## Codex quota guard
 
+- Use the workspace path format of the guard host. For the Windows-hosted launcher called from WSL, obtain `workspaceRoot` with `wslpath -w "$PWD"` once; reuse that Windows/UNC root for all calls. For Linux-native guard use the POSIX root. On resume preserve the checkpoint's stored root. Never mix Windows and Linux credential/state directories or assume the terminal shell determines the MCP host.
 - Call `quota_status` near the beginning of long-running work. Shared caching makes this inexpensive across concurrent tasks.
 - Break implementation and research into bounded part-jobs too, not only builds. Call `job_preflight` immediately before each part-job with a stable unique `jobId`, the actual task ID, absolute `workspaceRoot`, description and job class. Reuse the ID for retries; treat `allow` and `caution` as an admission, not a reservation. On `caution`, save a checkpoint before further substantial work; explain `mayConsumeCredits=true` before proceeding.
 - Keep the main task on `laneId="primary"`. For a separate lightweight session, call `quota_status` first and use `sessionRole="lightweight"` only when `lanes.secondary.available=true`; roles are stable and must not be replaced with model names.

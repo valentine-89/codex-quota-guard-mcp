@@ -1,6 +1,6 @@
 # Token-free scheduler bridge investigation
 
-Status: **bridge mutation verified on Windows; background monitor not yet integrated**.
+Status: **bridge mutation verified on Windows; WSL-to-Windows inventory verified; background monitor not yet integrated**.
 Date: 2026-08-30. Tested CLI 0.147.0, desktop 26.825.5331.0, bundled
 `codex-app-tools` plugin 0.1.3 (MCP handshake version 0.1.0).
 
@@ -130,6 +130,16 @@ there is no five-minute background monitor yet. Production acceptance still need
 fake-clock multi-process polling tests, account/role isolation, stale/backoff and
 manual-resume race tests, scheduler failure/restart tests, and one controlled
 end-to-end recovery/wake test with no model running during the waiting period.
+
+### Windows/WSL follow-up
+
+A WSL2 caller successfully ran the read-only bridge diagnostic using the shipped
+**Windows** Node/MCP runtime through interop, with the existing desktop capability
+forwarded through process-scoped WSLENV. This matches the installed desktop's
+observed WSL launch strategy; it is not direct Linux access to a Windows pipe.
+No scheduler mutation or model turn was performed in this follow-up. See
+[Windows/WSL setup and acceptance](WINDOWS_AND_WSL.md) for the launcher, credential
+boundaries, and distinctions between core quota support and scheduler availability.
 
 ## Official documentation versus local evidence
 

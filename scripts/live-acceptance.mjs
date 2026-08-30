@@ -13,9 +13,13 @@ const { values } = parseArgs({ options: {
   isolated: { type: "boolean", default: false },
   command: { type: "string", default: process.execPath },
   "args-json": { type: "string" },
+  summary: { type: "boolean", default: false },
 } });
+assert.ok(!(values.isolated && process.platform !== "win32" && /\.exe$/i.test(values.command)),
+  "Run --isolated from Windows when targeting a Windows executable; Linux temporary paths cannot configure the Windows server.");
 const environment = getDefaultEnvironment();
-for (const name of ["CODEX_HOME", "CODEX_CLI_PATH", "CODEX_QUOTA_GUARD_STATE_DIR", "CODEX_QUOTA_GUARD_CONFIG"]) {
+for (const name of ["CODEX_HOME", "CODEX_CLI_PATH", "CODEX_QUOTA_GUARD_STATE_DIR", "CODEX_QUOTA_GUARD_CONFIG",
+  "CODEX_QUOTA_GUARD_NODE", "WSLENV", "WSL_INTEROP"]) {
   if (process.env[name]) environment[name] = process.env[name];
 }
 // Isolate only guard state, never login state. Preserve custom runtime configuration.
@@ -65,7 +69,9 @@ try {
   process.stdout.write(`${JSON.stringify({
     accepted: true, server, command: values.command, args, isolatedStateDir,
     toolNames,
-    quota: structuredQuota,
+    quota: values.summary ? { source: structuredQuota.source, stale: structuredQuota.stale,
+      refreshInProgress: structuredQuota.refreshInProgress, planType: structuredQuota.planType,
+      fetchedAt: structuredQuota.fetchedAt } : structuredQuota,
     laneRoles: lanes && typeof lanes === "object" ? Object.keys(lanes).sort() : [],
   }, null, 2)}\n`);
 } finally {

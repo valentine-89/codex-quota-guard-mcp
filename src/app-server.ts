@@ -63,6 +63,13 @@ export class CodexAppServerClient {
     const pending = new Map<number, PendingRequest>();
     let nextId = 1;
     const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+    child.once("close", (code, signal) => {
+      const detail = stderr.trim() ? ` ${redactSensitiveText(stderr.trim(), 2_000)}` : "";
+      const error = new GuardError("APP_SERVER_EXITED",
+        `Codex app-server exited before completing the request (code ${code ?? "none"}, signal ${signal ?? "none"}).${detail}`);
+      for (const request of pending.values()) request.reject(error);
+      pending.clear();
+    });
     child.once("error", (error) => {
       const wrapped = new GuardError("CODEX_NOT_FOUND", `Unable to start Codex app-server: ${error.message}`);
       for (const request of pending.values()) request.reject(wrapped);
@@ -157,10 +164,13 @@ export class CodexAppServerClient {
       const isWindowsScript = process.platform === "win32" && /\.(cmd|bat)$/i.test(resolved);
       const executable = isWindowsScript ? process.env.ComSpec ?? "cmd.exe" : resolved;
       const args = isWindowsScript
-        ? ["/d", "/s", "/c", `"${resolved.replaceAll('"', '""')}" app-server --stdio`]
+        ? ["/d", "/s", "/v:off", "/c", '""%CODEX_QUOTA_GUARD_LAUNCH_COMMAND%" app-server --stdio"']
         : ["app-server", "--stdio"];
       return spawn(executable, args, {
-        env: { ...process.env, CODEX_HOME: this.config.codexHome },
+        env: { ...process.env, CODEX_HOME: this.config.codexHome,
+          ...(isWindowsScript ? { CODEX_QUOTA_GUARD_LAUNCH_COMMAND: resolved } : {}) },
+        // cmd.exe uses its own quoting grammar, not the C runtime argv grammar.
+        windowsVerbatimArguments: isWindowsScript,
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
       });

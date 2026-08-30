@@ -35,6 +35,11 @@ npm run check
 
 ## Register with Codex
 
+If the Windows desktop may switch between native and WSL agent mode, use the
+[Windows-hosted launcher recipe](WINDOWS_AND_WSL.md) instead of a Windows-only
+direct executable entry below. It keeps the guard, ChatGPT profile and SQLite
+cache on one host. The guide also covers independent Linux-native WSL installs.
+
 Add one MCP entry using absolute paths. On Windows, edit `%USERPROFILE%\.codex\config.toml`:
 
 ```toml
@@ -126,6 +131,11 @@ Explicit JSON `stateDir`, `codexHome`, and `codexCommand` take precedence over t
 5. Start a new task, verify the eight tools and `0.2.0` server version, then call `quota_status`. Use `npm run acceptance:live` for a protocol smoke without creating admissions or automations.
 
 For release acceptance, `npm run acceptance:live -- --isolated` uses a new temporary guard database while preserving the selected Codex login/profile. The script prints that directory and leaves it for inspection; do not publish its contents. Ordinary diagnostics should reuse shared state, not create isolated databases to bypass refresh limits. To smoke a registered command exactly, the script also accepts `--command <executable>` and `--args-json <JSON-string-array>` copied from the registration.
+
+Add `--summary` to limit successful output to protocol version, tool inventory,
+quota freshness/source, plan and role names. Cross-OS acceptance must use temporary
+paths belonging to the server host: run `--isolated` from Windows when launching
+the Windows-hosted server. Do not send Linux temporary config paths to Windows.
 
 An interrupted migration rolls back transactionally. A database with a newer schema is refused rather than downgraded. Restoring a pre-upgrade backup loses newer state; ask before doing so.
 

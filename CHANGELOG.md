@@ -4,6 +4,21 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Added
+
+- Explicit Windows-hosted stdio launcher callable from native Windows and WSL2,
+  retaining one Windows ChatGPT profile and shared cache.
+- Windows/WSL installation, workspace identity, verification and troubleshooting
+  guide, plus read-only scheduler bridge diagnostic and evidence.
+- Concise live acceptance output and cross-OS isolation-path safety check.
+
+### Fixed
+
+- Windows cmd/bat app-server launch quoting for paths containing spaces and shell
+  metacharacters; real subprocess regression tests run on every CI platform.
+- Early app-server exit now reports a bounded, redacted cause instead of an
+  unrelated quota timeout.
+
 ## [0.2.0] - 2026-08-30
 
 ### Added

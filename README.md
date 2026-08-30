@@ -26,6 +26,19 @@ This is an **advisory admission guard**, not a background scheduler or a hard to
 - An installed Codex CLI/app-server signed in with ChatGPT.
 - A Codex version that supports `account/rateLimits/read`. Older versions return `CODEX_UPGRADE_REQUIRED`; direct OAuth fallback is intentionally unsupported.
 
+### Windows and WSL2
+
+For a Windows desktop installation that switches between native and WSL agent
+mode, use the [Windows-hosted launcher configuration](docs/WINDOWS_AND_WSL.md).
+Both callers then use the same Windows ChatGPT profile, guard process runtime,
+and shared cache. WSL interoperability must be enabled. No credential copying,
+Windows elevation, or periodic model invocation is required.
+
+Linux-native WSL is also supported with Linux Node/Codex and its own signed-in
+ChatGPT profile. Do not mix Windows npm shims with Linux Node, or open the same
+SQLite state concurrently from Windows and Linux. See the platform guide for
+tested configurations, workspace path conversion, and scheduler limitations.
+
 ## Install from source
 
 ```powershell
@@ -132,6 +145,7 @@ node dist/main.js --doctor
 ## Documentation
 
 - [Getting started for humans and AI agents](docs/GETTING_STARTED.md)
+- [Windows/WSL installation, mode switching, and acceptance](docs/WINDOWS_AND_WSL.md)
 - [MCP v0.2 API reference](docs/MCP_API.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Cache policy](docs/CACHE_POLICY.md)

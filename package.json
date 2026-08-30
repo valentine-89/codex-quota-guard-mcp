@@ -11,6 +11,8 @@
   "files": [
     "dist",
     "examples",
+    "scripts",
+    "docs",
     "README.md",
     "LICENSE"
   ],
