@@ -12,6 +12,7 @@ import {
   ttlForWindow,
 } from "./policy.js";
 import { accountFingerprint, profileKey } from "./store.js";
+import { MONITOR_INTERVAL_MS } from "./monitor-state.js";
 import type { StateStore } from "./store.js";
 import type {
   AppServerQuotaResult,
@@ -37,6 +38,18 @@ export class QuotaGuardService {
   private readonly random: () => number;
   private readonly ownerId: string;
   private readonly key: string;
+  private monitorCapability: () => boolean = () => false;
+  private captureAutomation: ((defer: StoredDefer) => string | null) | undefined;
+
+  setMonitorCapability(capability: () => boolean): void { this.monitorCapability = capability; }
+  setAutomationCapture(capture: (defer: StoredDefer) => string | null): void { this.captureAutomation = capture; }
+  monitorStatus(): object {
+    const state = this.store.monitor.status(this.key);
+    return { available: this.monitorCapability(), intervalMs: MONITOR_INTERVAL_MS,
+      pendingRecords: this.store.monitor.list(this.key).length,
+      nextPollAt: iso(state?.nextPollAt ?? null), lastPollAt: iso(state?.lastPollAt ?? null),
+      lastError: state?.lastError ?? null, requiresLiveMcpProcess: true };
+  }
 
   constructor(
     private readonly config: GuardConfig,
@@ -243,6 +256,28 @@ export class QuotaGuardService {
     }
   }
 
+  /** Internal timer path, never a public force-refresh input. */
+  async monitorQuota(): Promise<QuotaSnapshot> {
+    const cache = this.store.getCache(this.key);
+    if (cache && this.store.monitor.list(this.key).length) {
+      this.store.capCacheDeadline(this.key, cache.fetchedAtMs + MONITOR_INTERVAL_MS);
+    }
+    return this.quotaStatus();
+  }
+
+  monitorCanResume(defer: StoredDefer, snapshot: QuotaSnapshot): boolean {
+    const cache = this.store.getCache(this.key);
+    const recovery = this.store.monitor.list(this.key).find(item => item.deferId === defer.id);
+    // The defer belongs to a workspace/task/role, not the account that exhausted
+    // quota. A newly signed-in account may recover it using its own profile.
+    if (!recovery || !cache?.accountFingerprint || cache.snapshot.fetchedAt !== snapshot.fetchedAt
+      || snapshot.stale || snapshot.refreshInProgress || snapshot.error
+      || !snapshot.lanes[defer.laneId]?.bucket) return false;
+    const checkpoint = this.getCheckpoint(defer.workspaceRoot, defer.taskId, defer.checkpointId);
+    const jobClass = checkpoint?.jobClass ?? (defer.laneId === "secondary" ? "small" : "long");
+    return preflightLane(this.decorate(snapshot, cache.accountFingerprint, jobClass), jobClass, this.config, defer.laneId).decision !== "defer";
+  }
+
   async jobPreflight(input: JobPreflightInput): Promise<JobPreflightResult> {
     if (![input.jobId, input.taskId, input.workspaceRoot, input.description].every((value) => typeof value === "string" && value.trim())) {
       throw new Error("jobId, taskId, workspaceRoot and description are required");
@@ -323,6 +358,10 @@ export class QuotaGuardService {
     const resumeAtMs = this.blockingResumeAt(quota, laneId);
     const checkpoint = this.createCheckpoint({ ...payload, laneId }, resumeAtMs);
     const defer = this.store.createDefer(this.key, checkpoint, payload.taskId, resumeAtMs, this.now(), laneId);
+    const cache = this.store.getCache(this.key);
+    const identity = this.identity(quota, cache?.accountFingerprint ?? null, quota.lanes[laneId]?.bucket ?? null);
+    const observedIdentity = !quota.stale && !quota.refreshInProgress && cache?.snapshot.fetchedAt === quota.fetchedAt ? identity : null;
+    this.store.monitor.enroll(this.key, defer.id, observedIdentity ?? { fingerprint: null, planType: null, limitId: null }, this.now());
     const canSchedule = resumeAtMs !== null && resumeAtMs > this.now()
       && resumeAtMs - this.now() <= this.config.maxAutomationWaitMs;
     const reason = resumeAtMs === null ? "reset_unknown" : canSchedule ? "scheduled" : "reset_too_far";
@@ -338,9 +377,17 @@ export class QuotaGuardService {
   }
 
   attachAutomation(deferId: string, automationId: string): StoredDefer {
+    const before = this.store.getDefer(this.key, deferId);
     const defer = this.store.attachAutomation(this.key, deferId, automationId, this.now());
     if (!defer || defer.state !== "active" || defer.automationId !== automationId) {
       throw new Error("The defer record is missing, no longer active, or does not belong to this quota-guard profile.");
+    }
+    // Capture once at first attachment. Repeated attach must not adopt user edits.
+    if (before?.automationId === null && this.captureAutomation) {
+      try {
+        const definition = this.captureAutomation(defer);
+        if (definition) this.store.monitor.bindDefinition(this.key, deferId, definition);
+      } catch { /* No verified baseline: leave original schedule unchanged. */ }
     }
     return defer;
   }
@@ -359,8 +406,13 @@ export class QuotaGuardService {
       this.store.expireCache(this.key);
     }
     const quota = await this.quotaStatus();
-    const lane = quota.lanes[laneId];
-    const canResume = !quota.stale && !quota.refreshInProgress && lane?.quotaPath !== undefined && lane.quotaPath !== "unavailable";
+    const current = this.store.getCache(this.key);
+    const checkpoint = prepared.checkpointId
+      ? this.getCheckpoint(input.workspaceRoot, input.taskId, prepared.checkpointId) : null;
+    const jobClass = checkpoint?.jobClass ?? (laneId === "secondary" ? "small" : "long");
+    const identitySafe = !!current?.accountFingerprint && current.snapshot.fetchedAt === quota.fetchedAt;
+    const canResume = identitySafe && !quota.stale && !quota.refreshInProgress && !quota.error
+      && preflightLane(this.decorate(quota, current.accountFingerprint, jobClass), jobClass, this.config, laneId).decision !== "defer";
     return { ...prepared, cancellationBestEffort: true, quota, canResume, laneId };
   }
 

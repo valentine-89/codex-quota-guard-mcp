@@ -14,6 +14,8 @@ Checkpoints are local SQLite records keyed by Codex profile, canonical workspace
 
 Manual resume is role-scoped: superseding a secondary defer does not cancel a primary defer (and vice versa). A secondary heartbeat can therefore wake lightweight work while the primary task remains deferred.
 
+With the optional [v0.3 monitor](MONITOR.md), verified external recovery (including another signed-in account with sufficient quota) can advance an attached heartbeat. Its claimed early wake is allowed before `resumeAt`, but still revalidates the current account's own policy. Attachment captures the original automation definition; later user edits are not adopted by retrying attach. Missing scheduler capability or an unverifiable definition leaves the original schedule intact. Superseded/fired accelerated heartbeats are also cleaned on local timer ticks without quota reads.
+
 When the backend supplies no reset timestamp, `canSchedule` is false and `resumeAt` is null. A reset farther than 24 hours remains visible on the checkpoint, but `canSchedule` is false. The tool does not invent a reset time.
 
 Checkpoint text is redacted for common key, bearer, token, and JWT patterns, but callers must still avoid supplying secrets or full model transcripts.

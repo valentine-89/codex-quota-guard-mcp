@@ -85,7 +85,7 @@ See [the complete install, upgrade and uninstall guide](docs/GETTING_STARTED.md)
 | `defer_automation_attach` | Bind the created heartbeat ID to its quota-owned defer record. |
 | `resume_prepare` | Supersede manual defers or validate an automation wake before work. |
 
-`defer_until_reset` prepares the automation contract. The calling Codex task must create the heartbeat and immediately attach its ID. On manual resume, `resume_prepare` returns only matching quota-guard automation IDs for best-effort deletion. A heartbeat whose defer was superseded exits without doing work. MCP itself does not control the Codex UI.
+`defer_until_reset` prepares the automation contract. The calling Codex task must create the heartbeat and immediately attach its ID. On manual resume, `resume_prepare` returns only matching quota-guard automation IDs for best-effort deletion. A heartbeat whose defer was superseded exits without doing work. The optional v0.3 monitor advances attached heartbeats through the installed desktop scheduler bridge; it does not control the UI.
 
 ### Primary and secondary sessions
 
@@ -125,7 +125,15 @@ This runtime-first design follows the official OpenAI guidance that Codex usage 
 | 1-10% | 60 seconds | Profile-aware admission or credit bypass |
 | 0% | Until reset + 30 seconds | Credit bypass or checkpoint/defer |
 
-TTL is the minimum across detected role allowances, bounded by reported reset boundaries. A usable secondary role or credit path keeps refresh possible while primary waits. All roles, including credits, refuse new admissions on stale data. All tasks using the same Codex home/state database share the cache, lease, and backoff; expired leases recover after a crashed process. Refresh is caller-driven, not periodic polling.
+TTL is the minimum across detected role allowances, bounded by reported reset boundaries. A usable secondary role or credit path keeps refresh possible while primary waits. All roles, including credits, refuse new admissions on stale data. All tasks using the same Codex home/state database share the cache, lease, and backoff; expired leases recover after a crashed process. Normal refresh is caller-driven. With the optional monitor configured and an attached pending defer, a shared timer checks quota at most once per five minutes (backoff may delay it).
+
+## Token-free early recovery monitor (v0.3)
+
+Multiple MCP instances are allowed; SQLite selects one quota-monitor owner and stores its next check deadline before I/O. No model turn is created to inspect quota. When fresh quota admits the deferred role, the monitor advances only its attached heartbeat. Changing to another signed-in account with sufficient quota also counts as recovery; its own thresholds and samples apply. Logout, unknown identity, stale data or insufficient quota do not authorize a wake.
+
+See [monitor setup and limitations](docs/MONITOR.md). This optional feature requires an installed trusted desktop scheduler server path plus the actual desktop-provided capability inherited by the MCP process. It is not enabled merely by cloning the repository. `quota_status.monitor` reports configuration availability, pending records and polling diagnostics. Without capability, original scheduled wakes remain unchanged.
+
+Monitoring stops when all MCP processes exit, the app closes or the computer sleeps. No Windows service, Linux daemon or token-consuming polling heartbeat is installed. Earlier scheduler delivery is best-effort, not an exact two-minute guarantee.
 
 ## Configuration
 
@@ -146,7 +154,7 @@ node dist/main.js --doctor
 
 - [Getting started for humans and AI agents](docs/GETTING_STARTED.md)
 - [Windows/WSL installation, mode switching, and acceptance](docs/WINDOWS_AND_WSL.md)
-- [MCP v0.2 API reference](docs/MCP_API.md)
+- [MCP API reference](docs/MCP_API.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Cache policy](docs/CACHE_POLICY.md)
 - [Checkpoint and resume](docs/CHECKPOINT_AND_RESUME.md)
@@ -154,6 +162,7 @@ node dist/main.js --doctor
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [Token-free scheduler bridge: verified probe and remaining work](docs/SCHEDULER_BRIDGE.md)
+- [Five-minute monitor setup, lifecycle and limitations](docs/MONITOR.md)
 
 ## Development
 

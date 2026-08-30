@@ -45,12 +45,12 @@ const transport = new StdioClientTransport({
   env: environment,
   stderr: "pipe",
 });
-const client = new Client({ name: "codex-quota-guard-live-acceptance", version: "0.2.0" });
+const client = new Client({ name: "codex-quota-guard-live-acceptance", version: "0.3.0" });
 
 try {
   await client.connect(transport);
   const server = client.getServerVersion();
-  assert.equal(server?.version, "0.2.0", "Registered entrypoint must expose MCP v0.2.0");
+  assert.equal(server?.version, "0.3.0", "Registered entrypoint must expose MCP v0.3.0");
   const tools = await client.listTools();
   const toolNames = tools.tools.map((tool) => tool.name).sort();
   assert.deepEqual(toolNames, ["checkpoint_create", "checkpoint_get", "defer_automation_attach", "defer_until_reset",

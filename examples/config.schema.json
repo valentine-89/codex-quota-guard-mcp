@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/valentine-89/codex-quota-guard-mcp/blob/main/examples/config.schema.json",
-  "title": "Codex Quota Guard MCP v0.2 configuration",
+  "title": "Codex Quota Guard MCP v0.3 configuration",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -9,6 +9,8 @@
     "stateDir": { "type": "string", "minLength": 1 },
     "codexHome": { "type": "string", "minLength": 1 },
     "codexCommand": { "type": "string", "minLength": 1 },
+    "monitorEnabled": { "type": "boolean", "default": true },
+    "schedulerServerPath": { "type": "string", "minLength": 1, "description": "Absolute path to the installed trusted OpenAI codex-app-tools server.mjs. Required with inherited desktop capability to enable monitoring." },
     "planDefaults": {
       "type": "object",
       "additionalProperties": false,

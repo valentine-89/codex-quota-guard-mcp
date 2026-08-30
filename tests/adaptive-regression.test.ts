@@ -297,6 +297,56 @@ test("automation ownership is immutable, role-scoped and claims a due defer only
   } finally { f.close(); }
 });
 
+test("account switching recovers an old defer with the new account profile, without mixing overrides", async () => {
+  const f = fixture();
+  try {
+    f.setRaw(rawQuota(100, 20_000));
+    await f.service.quotaProfile("adjust", 25);
+    const deferred = await f.service.deferUntilReset({ workspaceRoot: f.directory, taskId: "task", objective: "blocked", completed: [], pending: ["test"] });
+    f.service.attachAutomation(deferred.deferId, "owned-switch");
+    const next = rawQuota(15, 20_000, { planType: "free" });
+    next.account.account!.email = "new@example.invalid";
+    f.setRaw(next);
+    f.advance(300_000);
+    const quota = await f.service.monitorQuota();
+    assert.equal(quota.profile.userOverridePercent, 0);
+    assert.equal(quota.profile.baselineRemainingPercent, 20);
+    assert.equal(f.service.monitorCanResume(deferred.defer, quota), true);
+    const key = profileKey(f.config.codexHome);
+    const ticket = f.store.monitor.claim(key, "monitor", 301_000)!;
+    assert.ok(ticket);
+    assert.equal(f.store.monitor.dispatch(key, ticket, deferred.deferId, "expected", 301_000), true);
+    const resumed = await f.service.resumePrepare({ workspaceRoot: f.directory, taskId: "task", deferId: deferred.deferId, trigger: "automation" });
+    assert.equal(resumed.shouldExit, false);
+    assert.equal(resumed.canResume, true);
+    // Returning to the original account restores its persisted override.
+    f.setRaw(rawQuota(20, 20_000)); f.advance();
+    assert.equal((await f.service.quotaProfile("get")).userOverridePercent, 25);
+  } finally { f.close(); }
+});
+
+test("logout and insufficient new-account primary quota never wake primary from secondary reserve", async () => {
+  const f = fixture();
+  try {
+    f.setRaw(rawQuota(100, 20_000));
+    const deferred = await f.service.deferUntilReset({ workspaceRoot: f.directory, taskId: "task", objective: "blocked", completed: [], pending: [] });
+    f.service.attachAutomation(deferred.deferId, "owned-logout");
+    const loggedOut = rawQuota(0, 20_000);
+    loggedOut.account.account = null;
+    f.setRaw(loggedOut); f.advance(300_000);
+    assert.equal(f.service.monitorCanResume(deferred.defer, await f.service.monitorQuota()), false);
+    const next = rawQuota(85, 20_000, { planType: "free", secondaryReserveUsed: 0 });
+    next.account.account!.email = "other@example.invalid";
+    f.setRaw(next); f.advance(300_000);
+    const quota = await f.service.monitorQuota();
+    assert.equal(quota.lanes.secondary?.quotaPath, "included");
+    assert.equal(f.service.monitorCanResume(deferred.defer, quota), false);
+    assert.equal(f.store.getDefer(profileKey(f.config.codexHome), deferred.deferId)?.state, "active");
+    const result = await f.service.resumePrepare({ workspaceRoot: f.directory, taskId: "task", trigger: "manual" });
+    assert.equal(result.canResume, false);
+  } finally { f.close(); }
+});
+
 test("migration preserves v0.1 checkpoint/cache and refuses future schemas", () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-migrate-"));
   const path = join(directory, "state.sqlite");

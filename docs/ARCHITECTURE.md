@@ -6,6 +6,7 @@
 - `QuotaGuardService` applies cache, lease, backoff, plan profiles, passive learning, admission, and defer/resume policies.
 - `StateStore` owns additive v0.2 SQLite persistence for cache/checkpoints plus samples, account-plan overrides, idempotent admissions, and quota-owned defer records.
 - `mcp-server` exposes eight bounded stdio tools.
+- `QuotaMonitor` coordinates five-minute quota checks using durable SQLite lease generations; `DesktopSchedulerBridge` advances only exact attached heartbeats through the installed OpenAI MCP server. Local cleanup runs independently of quota reads. See [monitor lifecycle](MONITOR.md).
 
 ## Refresh sequence
 
@@ -13,7 +14,7 @@
 2. Return a fresh snapshot immediately when its adaptive TTL has not expired.
 3. Return a stale snapshot while shared backoff is active.
 4. Atomically acquire a refresh lease. Non-owners return cache with `refreshInProgress=true`.
-5. Start `codex app-server --stdio`, send `initialize`, `account/read`, and `account/rateLimits/read`.
+5. Start `codex app-server --stdio`, send `initialize`, `account/read`, and `account/rateLimits/read`; re-read account metadata and reject an observed account change.
 6. Normalize the active bucket, explicitly labelled secondary/reserve buckets, credits, spend controls, and arbitrary long windows; feed a valid fresh five-hour delta into passive learning.
 7. Decorate the snapshot with the current account-plan profile, store it, clear backoff, and release the lease.
 
@@ -27,7 +28,7 @@ Each non-deferred `job_preflight` inserts an idempotent admission keyed by profi
 
 Every `defer_until_reset` creates a local defer UUID linked to its checkpoint. Codex attaches the heartbeat ID after creation; ownership is immutable and cannot be assigned to another defer. Manual resume atomically supersedes active records matching Codex home, workspace, task and role (optionally a specific defer ID) before quota revalidation. Returned IDs are best-effort cancellation hints. An automation wake must name its defer UUID; early, wrong-scope, missing or superseded wakes exit. A due wake atomically claims the record as `fired`, so duplicate invocations cannot run it twice.
 
-SQLite `user_version=2` migrations are transactional and additive. Old cache/checkpoint rows survive. Rolling samples are bounded per account/plan/bucket/class; idempotency records and checkpoints persist. Guard processes share WAL, a busy timeout and leases. Do not run a pre-v0.2 process against migrated state for ongoing work.
+SQLite `user_version=3` migrations are transactional and additive, adding monitor deadlines and a recovery outbox. Old cache/checkpoint rows survive. Rolling samples are bounded per account/plan/bucket/class; idempotency records and checkpoints persist. Guard processes share WAL, a busy timeout and leases. Do not run older binaries against migrated state for ongoing work.
 
 ## Failure model
 

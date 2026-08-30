@@ -59,6 +59,12 @@ If the user resumed manually, call `resume_prepare(trigger="manual")` and best-e
 
 Call `quota_profile` with `action: "get"` and inspect baseline, rolling mean, sample count, and override. Passive learning can be conservative when other Codex or shared agentic clients consume usage without calling `job_preflight`. Use `adjust` with a negative delta to lower the threshold, or `reset` to remove the persistent account-plan override.
 
+## Monitor unavailable or old MCP connection closed
+
+Check `quota_status.monitor` on a fresh connection and follow [monitor setup](MONITOR.md). `pendingRecords=0` means no enrolled attached defer is being observed; a legacy heartbeat existing in the desktop UI is not enough. `available=true` only confirms configured path/capability presence, not a completed scheduler mutation. Preserve the original wake when the bridge cannot be used.
+
+After stopping an incompatible old MCP, the current task may report `Transport closed` rather than reconnect automatically. Open a fresh MCP connection/task or reload using available app controls. Do not repeatedly call the dead transport or kill Codex itself. Windows/WSL must launch the same updated guard and use the intended state/home; do not mix old binaries with schema3.
+
 ## Node SQLite warning
 
 Some supported Node releases still label `node:sqlite` experimental and print a warning to stderr. MCP JSON-RPC uses stdout, so this does not corrupt protocol traffic. Use a current Node LTS/current release and review Node release notes before suppressing warnings globally.

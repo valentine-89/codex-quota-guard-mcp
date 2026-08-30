@@ -189,10 +189,10 @@ value. A shell launched outside desktop may have no capability. Do not treat a
 successful quota read as proof of scheduler availability.
 
 The diagnostic only lists tools. It cannot start work or consume inference
-tokens. The five-minute background recovery monitor is **not implemented in
-v0.2.0**; publishing this guide does not enable it. Do not install a periodic AI
-heartbeat as a substitute. Future integration must test capability inheritance
-into MCP, all-tasks-idle lifetime, restart, ownership and manual-resume races.
+tokens. Version0.3 adds the optional [five-minute monitor](MONITOR.md), requiring
+explicit server-path configuration and capability inheritance into the MCP.
+Do not install a periodic AI heartbeat as a substitute. All-tasks-idle lifetime,
+sleep and desktop restart acceptance are separate from a working quota read.
 
 ## Acceptance record — 2026-08-30
 

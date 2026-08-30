@@ -129,12 +129,16 @@ export class CodexAppServerClient {
 
     try {
       await call("initialize", {
-        clientInfo: { name: "codex-quota-guard-mcp", version: "0.2.0" },
+        clientInfo: { name: "codex-quota-guard-mcp", version: "0.3.0" },
         capabilities: { experimentalApi: false },
       });
       child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
       const account = await call("account/read", { refreshToken: false });
       const rateLimits = await call("account/rateLimits/read");
+      const verifiedAccount = await call("account/read", { refreshToken: false });
+      if (JSON.stringify(account) !== JSON.stringify(verifiedAccount)) {
+        throw new GuardError("ACCOUNT_CHANGED_DURING_READ", "Account changed while reading quota; wait for shared revalidation.");
+      }
       if (!isRecord(account) || !isRecord(rateLimits)) {
         throw new GuardError("APP_SERVER_INVALID_RESPONSE", "Codex app-server returned an invalid account or rate-limit response.");
       }

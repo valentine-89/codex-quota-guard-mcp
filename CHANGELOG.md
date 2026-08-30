@@ -4,7 +4,16 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-30
+
 ### Added
+
+- Optional token-free five-minute in-MCP quota monitor, shared durable deadlines,
+  fenced early-resume outbox and ownership-checked shipped desktop scheduler adapter.
+- Account-switch recovery with independent profiles, and local accelerated-heartbeat
+  cleanup without additional quota reads; configuration and diagnostics documentation.
+- Regression coverage for concurrent monitor connections, lease expiry, uncertain
+  acknowledgments, account-read races, logout and user-edited automation ownership.
 
 - Explicit Windows-hosted stdio launcher callable from native Windows and WSL2,
   retaining one Windows ChatGPT profile and shared cache.

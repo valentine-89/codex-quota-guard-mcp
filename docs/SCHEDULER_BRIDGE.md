@@ -1,6 +1,6 @@
 # Token-free scheduler bridge investigation
 
-Status: **bridge mutation verified on Windows; WSL-to-Windows inventory verified; background monitor not yet integrated**.
+Status: **bridge mutation verified on Windows; WSL-to-Windows inventory verified; v0.3 timer integrated, full live recovery acceptance tracked separately**. See [monitor setup](MONITOR.md).
 Date: 2026-08-30. Tested CLI 0.147.0, desktop 26.825.5331.0, bundled
 `codex-app-tools` plugin 0.1.3 (MCP handshake version 0.1.0).
 
@@ -89,8 +89,14 @@ model. The eventual resumed work itself still consumes its normal quota.
    exhausted; do not retain an exhausted-cache deadline hours into the future.
    Coordinate all processes through shared leases/cache/backoff. Respect backend
    retry timing and nearer normal reset boundaries. No public force-refresh.
-2. Revalidate account fingerprint, plan, workspace, task, selected primary/secondary
-   role and defer ownership. Require fresh quota and an admissible policy result,
+2. Revalidate the current account fingerprint and plan, workspace, task, selected primary/secondary
+   role and defer ownership. A different signed-in account with sufficient quota
+   counts as external recovery: do not require it to match the account that created
+   the defer. Evaluate its own baseline, learned samples and override; never copy
+   the previous account's statistics or preferences. Logout, unavailable identity,
+   stale quota and backoff must retain the checkpoint and scheduled wake without
+   authorizing work. Switching accounts is observed at the next permitted shared
+   refresh, not synchronously with the login UI. Require fresh quota and an admissible policy result,
    not just a changed reset timestamp or any positive remaining percentage.
    Secondary recovery must not wake primary work. Do not use display model names.
 3. Claim the active defer atomically, persist a recovery/outbox generation, and
@@ -125,11 +131,11 @@ select an older-version fallback automatically. If the capability is absent or
 authorization fails, retain the original scheduled wake and report the monitor
 as unavailable; do not switch to token-consuming polling or private state writes.
 
-The current v0.2 runtime is unchanged: quota refresh remains caller-driven and
-there is no five-minute background monitor yet. Production acceptance still needs
-fake-clock multi-process polling tests, account/role isolation, stale/backoff and
-manual-resume race tests, scheduler failure/restart tests, and one controlled
-end-to-end recovery/wake test with no model running during the waiting period.
+The v0.3 implementation adds the shared five-minute timer, fenced early-wake state,
+ownership-checked scheduler adapter, and fast local cleanup. Automated tests cover
+competing SQLite connections, account changes, backoff, manual-resume races and
+uncertain scheduler acknowledgments. A controlled real recovery/wake test and
+idle/sleep/desktop-restart coverage must be reported separately from unit tests.
 
 ### Windows/WSL follow-up
 

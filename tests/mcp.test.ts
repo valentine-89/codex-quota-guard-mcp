@@ -21,7 +21,7 @@ test("MCP v0.2 handshake exposes the adaptive profile and defer lifecycle tools"
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   try {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-    assert.equal(client.getServerVersion()?.version, "0.2.0");
+    assert.equal(client.getServerVersion()?.version, "0.3.0");
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
       "checkpoint_create",

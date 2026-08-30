@@ -12,6 +12,7 @@ import type {
   StoredDefer,
 } from "./types.js";
 import { redactSensitiveText, sanitizeStringList } from "./security.js";
+import { MonitorState } from "./monitor-state.js";
 
 function rowRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
@@ -36,14 +37,15 @@ export function accountFingerprint(accountType: unknown, email: unknown): string
 
 export class StateStore {
   private readonly database: DatabaseSync;
+  readonly monitor: MonitorState;
 
   constructor(path: string) {
     this.database = new DatabaseSync(path);
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
     const version = numeric(rowRecord(this.database.prepare("PRAGMA user_version").get())?.user_version);
-    if (version > 2) {
+    if (version > 3) {
       this.database.close();
-      throw new Error(`State schema ${version} is newer than supported schema 2; upgrade quota guard.`);
+      throw new Error(`State schema ${version} is newer than supported schema 3; upgrade quota guard.`);
     }
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -100,17 +102,19 @@ export class StateStore {
       );
       CREATE INDEX IF NOT EXISTS idx_defer_lookup
         ON defer_records(profile_key, workspace_hash, task_id, state, created_at_ms DESC);
-      PRAGMA user_version=2;
+      PRAGMA user_version=3;
     `);
     const deferColumns = this.database.prepare("PRAGMA table_info(defer_records)").all()
       .map((row) => nullableText(rowRecord(row)?.name));
     if (!deferColumns.includes("lane_id")) this.database.exec("ALTER TABLE defer_records ADD COLUMN lane_id TEXT NOT NULL DEFAULT 'primary'");
+    MonitorState.migrate(this.database);
     this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
       this.database.close();
       throw error;
     }
+    this.monitor = new MonitorState(this.database);
   }
 
   close(): void { this.database.close() }
@@ -141,6 +145,11 @@ export class StateStore {
 
   expireCache(key: string): void {
     this.database.prepare("UPDATE quota_cache SET next_refresh_at_ms = 0 WHERE profile_key = ?").run(key);
+  }
+
+  capCacheDeadline(key: string, deadlineMs: number): void {
+    this.database.prepare("UPDATE quota_cache SET next_refresh_at_ms=MIN(next_refresh_at_ms,?) WHERE profile_key=?")
+      .run(deadlineMs, key);
   }
 
   invalidateObservations(key: string): void {
@@ -409,7 +418,8 @@ export class StateStore {
       const record = this.getDefer(key, deferId);
       if (!record || stableHash(record.workspaceRoot.toLocaleLowerCase()) !== workspaceHash
         || record.taskId !== taskId || record.state !== "active" || record.laneId !== laneId
-        || record.resumeAt === null || Date.parse(record.resumeAt) > nowMs) {
+        || ((record.resumeAt === null || Date.parse(record.resumeAt) > nowMs)
+          && !this.monitor.permitsEarly(key, deferId, nowMs))) {
         return { shouldExit: true, automationIdsToCancel: [], checkpointId: null, deferIds: [] };
       }
       this.database.prepare("UPDATE defer_records SET state='fired', updated_at_ms=? WHERE id=? AND profile_key=? AND state='active'")

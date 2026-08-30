@@ -52,3 +52,18 @@ test("early app-server exit reports its redacted cause instead of waiting for qu
     });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("account change across quota read rejects a mixed-account snapshot", async () => {
+  const { root, command } = fixture(`
+let reads=0;
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+ const m=JSON.parse(line); if(m.id == null) return;
+ const result=m.method==='account/read' ? {account:{type:'chatgpt',email:++reads===1?'first@example.invalid':'next@example.invalid'}}
+ : m.method==='account/rateLimits/read' ? {rateLimits:{primary:{usedPercent:0,windowDurationMins:300}}} : {};
+ console.log(JSON.stringify({id:m.id,result}));
+});`);
+  try {
+    await assert.rejects(new CodexAppServerClient({ ...testConfig(join(root, "state.sqlite")), codexCommand: command,
+      appServerTimeoutMs: 5_000 }).readQuota(), { code: "ACCOUNT_CHANGED_DURING_READ" });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -6,7 +6,7 @@ The quota guard never opens Codex `auth.json`, browser stores, cookies, keyrings
 
 ## Persistence
 
-- No prompts, model responses, API keys, OAuth tokens, or browser data are intentionally stored.
+- No full model conversations, model responses, API keys, OAuth tokens, or browser data are intentionally stored. The optional scheduler outbox stores the exact owned automation definition (including its bounded guard resume prompt) to detect user edits; do not put secrets in automation fields.
 - Account email is hashed before persistence.
 - Checkpoint fields are length-bounded and redacted for common secret patterns.
 - Runtime SQLite files live outside the repository and are excluded by `.gitignore`.
@@ -14,6 +14,8 @@ The quota guard never opens Codex `auth.json`, browser stores, cookies, keyrings
 ## Process and network behavior
 
 The MCP server opens no listening socket and sends no telemetry. It communicates over stdio with Codex and starts the installed Codex app-server only when shared cache policy permits refresh. Any upstream account request is made by the official app-server.
+
+The optional monitor launches an explicitly configured trusted OpenAI desktop MCP server. It forwards only the existing desktop capability in memory, never writes a pipe value to configuration, and never implements private IPC. It reads only exact attached automation files for ownership comparison; all scheduler mutations go through the shipped tool and retain its authorization checks. The server path is executable configuration and must not point to untrusted code.
 
 ## Reporting vulnerabilities
 

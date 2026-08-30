@@ -1,5 +1,6 @@
 {
   "$schema": "./config.schema.json",
+  "monitorEnabled": true,
   "planDefaults": { "freeGo": 20, "standard": 10, "pro": 5, "unknown": 15 },
   "sampleWindow": 20,
   "minSamples": 3,

@@ -47,12 +47,12 @@ function failure(error: unknown) {
 }
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
-  const server = new McpServer({ name: "codex-quota-guard-mcp", version: "0.2.0" });
+  const server = new McpServer({ name: "codex-quota-guard-mcp", version: "0.3.0" });
 
   server.registerTool("quota_status", {
     description: "Read the shared adaptive Codex quota, detected plan profile, learned part-job cost, and runtime allowance capability. Callers cannot force refresh.",
     inputSchema: {},
-  }, async () => { try { return result(await service.quotaStatus()); } catch (error) { return failure(error); } });
+  }, async () => { try { return result({ ...await service.quotaStatus(), monitor: service.monitorStatus() }); } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
     description: "Call exactly once with a stable jobId before a costly boundary. Any non-defer result records one passive part-job admission. Use primary for the main task; use secondary only when quota_status reports an explicit secondary lane.",

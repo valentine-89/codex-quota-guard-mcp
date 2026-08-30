@@ -22,6 +22,11 @@ Lease acquisition uses `BEGIN IMMEDIATE`, removes an expired lease for the profi
 
 The backoff record is shared by all tasks and cleared only after a successful refresh.
 
+With the v0.3 monitor configured and an attached waiting defer, a durable shared
+deadline allows internal revalidation every five minutes even when exhausted-cache
+TTL runs until reset. It does not expose force refresh, bypass backoff or start a
+model turn. Local accelerated-heartbeat cleanup does not trigger quota refresh.
+
 ## Stale safety
 
 A stale snapshot or in-progress refresh cannot admit any new job, including secondary or credit-backed work. These gaps invalidate pending learning intervals, not previously accepted samples. The next successful refresh establishes a new observation baseline.
