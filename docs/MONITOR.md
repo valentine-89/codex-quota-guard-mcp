@@ -42,7 +42,7 @@ Do not run older binaries against the migrated database. Update the installation
 
 ## Limits and diagnostics
 
-The app, computer and at least one guard MCP connection must remain alive. Sleep, app shutdown, closed stdio or revoked desktop capability stops monitoring. No standalone service is installed. Five minutes is a check cadence, not a guaranteed wake latency; backoff, sleep and scheduler delivery can extend it.
+For the default stdio deployment, the app, computer and at least one guard MCP connection must remain alive. Sleep, app shutdown, closed stdio or revoked desktop capability stops monitoring. No standalone service is installed. Five minutes is a check cadence, not a guaranteed wake latency; backoff, sleep and scheduler delivery can extend it.
 
 Version0.3.1 hardens process lifetime: input EOF/close/error, output close/error,
 transport closure or a detected missing parent triggers self-shutdown. Parent
@@ -54,11 +54,12 @@ expired just because no tool calls arrive; it may be waiting for quota recovery.
 
 These guards do not impose a cap on valid simultaneous stdio sessions. The six
 older processes found during upgrade were not proven orphans: their age and count
-alone cannot establish whether Codex still owned live pipes. A shared HTTP server
-would be a different architecture, requiring explicit endpoint/lifecycle/security
-configuration. Instructions to the AI cannot multiplex independent stdio pipes.
+alone cannot establish whether Codex still owned live pipes. The v0.4 opt-in
+[shared HTTP server](SHARED_HTTP.md) uses a different lifetime and requires explicit
+endpoint/security/startup configuration. Instructions to the AI cannot multiplex
+independent stdio pipes. No existing launcher is automatically migrated.
 
-`quota_status.monitor` returns `available`, `intervalMs`, `pendingRecords`, `nextPollAt`, `lastPollAt`, `lastError`, and `requiresLiveMcpProcess`. A configured bridge with a scheduler error is not proof of delivery. The shipped desktop bridge is runtime-verified integration, not a documented stable third-party API; unsupported versions fail closed without a compatibility fallback.
+`quota_status.monitor` returns `available`, `intervalMs`, `pendingRecords`, `nextPollAt`, `lastPollAt`, `lastError`, `requiresLiveMcpProcess`, `runtimeMode`, and `requiresLiveClientConnection`. In shared HTTP mode the core remains alive without an MCP client, but still needs the desktop capability and running app. A configured bridge with a scheduler error is not proof of delivery. The shipped desktop bridge is runtime-verified integration, not a documented stable third-party API; unsupported versions fail closed without a compatibility fallback.
 
 ## Acceptance — 2026-08-30
 

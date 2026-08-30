@@ -1,6 +1,6 @@
 {
   "name": "codex-quota-guard-mcp",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Plan-aware adaptive Codex quota guard, passive learning, and checkpoint MCP server",
   "type": "module",
   "license": "MIT",
@@ -28,7 +28,9 @@
     "test": "node --import tsx --test tests/**/*.test.ts",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "doctor": "node dist/main.js --doctor",
-    "acceptance:live": "node scripts/live-acceptance.mjs"
+    "acceptance:live": "node scripts/live-acceptance.mjs",
+    "acceptance:shared": "node scripts/shared-core-acceptance.mjs",
+    "start:http": "node dist/http-main.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

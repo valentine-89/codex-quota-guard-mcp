@@ -1,5 +1,10 @@
 # Windows and WSL2
 
+The v0.4 [experimental shared HTTP mode](SHARED_HTTP.md) has a separate wire-only
+Windows connector tested through WSL interop. It does not require direct Linux
+access to a Windows loopback listener, a network-mode change, or a second SQLite
+profile. It is not installed by the normal setup below.
+
 ## Choose the process host, not the terminal appearance
 
 The Codex agent environment and integrated terminal are separate settings.

@@ -40,6 +40,9 @@ export class QuotaGuardService {
   private readonly key: string;
   private monitorCapability: () => boolean = () => false;
   private captureAutomation: ((defer: StoredDefer) => string | null) | undefined;
+  private runtimeMode: "stdio" | "shared-http" = "stdio";
+
+  setRuntimeMode(mode: "stdio" | "shared-http"): void { this.runtimeMode = mode; }
 
   setMonitorCapability(capability: () => boolean): void { this.monitorCapability = capability; }
   setAutomationCapture(capture: (defer: StoredDefer) => string | null): void { this.captureAutomation = capture; }
@@ -48,7 +51,8 @@ export class QuotaGuardService {
     return { available: this.monitorCapability(), intervalMs: MONITOR_INTERVAL_MS,
       pendingRecords: this.store.monitor.list(this.key).length,
       nextPollAt: iso(state?.nextPollAt ?? null), lastPollAt: iso(state?.lastPollAt ?? null),
-      lastError: state?.lastError ?? null, requiresLiveMcpProcess: true };
+      lastError: state?.lastError ?? null, requiresLiveMcpProcess: true,
+      requiresLiveClientConnection: this.runtimeMode === "stdio", runtimeMode: this.runtimeMode };
   }
 
   constructor(

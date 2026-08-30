@@ -3,6 +3,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
+import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -12,7 +15,7 @@ import { QuotaGuardService } from "../src/service.js";
 import { DesktopSchedulerBridge, EARLY_RRULE } from "../src/scheduler.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
-test("real stdio MCP timer advances an owned fixture without a quota tool call", { timeout: 20_000 }, async () => {
+for (const mode of ["stdio", "http"] as const) test(`real ${mode} timer advances an owned fixture without a quota tool call`, { timeout: 20_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "quota-monitor-process-"));
   const state = join(dir, "state"); mkdirSync(state);
   const config = { ...testConfig(join(state, "state.sqlite")), codexHome: dir, appServerTimeoutMs: 5_000 };
@@ -62,8 +65,24 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   const transport = new StdioClientTransport({ command: process.execPath,
     args: ["--import", "tsx", resolve("src/main.ts")], env: { ...getDefaultEnvironment(),
       CODEX_QUOTA_GUARD_CONFIG: configPath, CODEX_APP_TOOLS_PIPE_PATH: "fixture-only-not-real" }, stderr: "pipe" });
+  let child: ChildProcess | undefined;
+  let exited: Promise<unknown> | undefined;
   try {
-    await client.connect(transport); // No quota_status or preflight calls from this client.
+    if (mode === "stdio") await client.connect(transport); // No quota tool calls.
+    else {
+      const reservation = createServer();
+      await new Promise<void>(resolve => reservation.listen(0, "127.0.0.1", resolve));
+      const address = reservation.address(); assert.ok(address && typeof address !== "string");
+      await new Promise<void>(resolve => reservation.close(() => resolve()));
+      child = spawn(process.execPath, ["--import", "tsx", resolve("src/http-main.ts")], {
+        env: { ...getDefaultEnvironment(), CODEX_QUOTA_GUARD_CONFIG: configPath,
+          CODEX_APP_TOOLS_PIPE_PATH: "fixture-only-not-real", CODEX_QUOTA_GUARD_HTTP_PORT: String(address.port),
+          CODEX_QUOTA_GUARD_HTTP_TOKEN: randomBytes(32).toString("base64url") },
+        windowsHide: true, stdio: "ignore",
+      });
+      exited = new Promise(resolve => child!.once("exit", resolve));
+      // Deliberately never initialize an MCP client or keep a stdio connection open.
+    }
     const deadline = Date.now() + 10_000;
     while (!existsSync(marker) && Date.now() < deadline) await delay(50);
     assert.ok(existsSync(marker), `internal timer must perform scheduler dispatch: ${JSON.stringify({ status: store.monitor.status(profileKey(dir)), records: store.monitor.list(profileKey(dir)), cache: store.getCache(profileKey(dir))?.snapshot.error })}`);
@@ -71,6 +90,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
     assert.ok(["dispatching", "scheduled"].includes(store.monitor.list(profileKey(dir))[0]!.stage));
   } finally {
     await client.close();
+    child?.kill(); await exited;
     store.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }

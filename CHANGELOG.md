@@ -4,6 +4,33 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-30
+
+### Added
+
+- Opt-in authenticated loopback Streamable HTTP core, sharing one quota service,
+  store and monitor across request-scoped MCP transports. No unbounded session map.
+- Exclusive core ownership lock in the configured guard state directory, released
+  by the OS on process death; conflicting starts fail without terminating a peer.
+- Bounded HTTP requests/connections/body size, Host/Origin validation, random local
+  bearer-secret requirement, and no automatic replay of unconfirmed mutations.
+- Wire-only stdio connector, including a Windows launcher callable through WSL.
+  It has no quota/store/scheduler instances and never starts a fallback full guard.
+- Runtime diagnostics distinguish a live core requirement from a live client
+  connection requirement. HTTP monitoring starts without MCP initialization.
+- Isolated live Windows/WSL acceptance harness; six clients share one snapshot,
+  the core survives disconnect, and inherited desktop read dispatch still works.
+- Actual Codex app-server HTTP-client inventory smoke with bearer/environment-header
+  authentication in an empty isolated Codex home; no model turn or quota read.
+
+### Acceptance boundary
+
+- Shared HTTP is experimental. No automatic bootstrap, supervisor, login startup,
+  desktop capability renewal, or change to an existing MCP registration is installed.
+  Desktop restart, reboot and sleep/wake recovery are not yet verified.
+- Live probes perform no scheduler mutations/model turns. The no-client early-wake
+  regression uses a disposable scheduler fixture, not a real production heartbeat.
+
 ## [0.3.1] - 2026-08-30
 
 ### Fixed

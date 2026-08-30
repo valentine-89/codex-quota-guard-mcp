@@ -133,7 +133,7 @@ Multiple MCP instances are allowed; SQLite selects one quota-monitor owner and s
 
 See [monitor setup and limitations](docs/MONITOR.md). This optional feature requires an installed trusted desktop scheduler server path plus the actual desktop-provided capability inherited by the MCP process. It is not enabled merely by cloning the repository. `quota_status.monitor` reports configuration availability, pending records and polling diagnostics. Without capability, original scheduled wakes remain unchanged.
 
-Monitoring stops when all MCP processes exit, the app closes or the computer sleeps. No Windows service, Linux daemon or token-consuming polling heartbeat is installed. Earlier scheduler delivery is best-effort, not an exact two-minute guarantee.
+In the default stdio deployment, monitoring stops when all MCP processes exit, the app closes or the computer sleeps. No Windows service, startup daemon or token-consuming polling heartbeat is installed. Earlier scheduler delivery is best-effort, not an exact two-minute guarantee.
 
 Version0.3.1 automatically exits disconnected/orphaned MCP instances, expires
 unfinished initialization after60 seconds and bounds shutdown cleanup to5 seconds.
@@ -146,6 +146,17 @@ wake about78 minutes before its old resume boundary, quota revalidation and
 heartbeat cleanup. An SDK harness kept MCP alive for this test; automatic desktop
 reconnection and sleep/restart behavior remain unverified. See the
 [acceptance timeline](docs/MONITOR.md#real-early-wake-after-account-switch).
+
+## Experimental shared HTTP core (v0.4)
+
+An opt-in [shared HTTP core and wire-only connector](docs/SHARED_HTTP.md) lets many
+clients use one quota service/store/monitor. The core stays alive without client
+connections; it requires an authenticated loopback endpoint and explicit startup.
+Windows and Windows-hosted WSL probes passed with six HTTP clients and a read-only
+desktop dispatch after disconnect. No auto-bootstrap, supervisor or capability
+renewal after desktop restart is installed. **Agents must not silently replace the
+default launcher with this experimental mode.** Existing installations remain stdio
+until an explicit deployment/migration decision.
 
 ## Configuration
 

@@ -1,6 +1,6 @@
 # MCP API v0.2
 
-Server: `codex-quota-guard-mcp`, version `0.3.1`, stdio transport. Eight v0.2 tools remain; `quota_status` additionally returns [monitor diagnostics](MONITOR.md). Successful results contain identical JSON in `structuredContent` and text content. Tool errors set `isError=true` with a bounded `{error:{code,message}}` payload; quota-read failures normally return a stale/unavailable snapshot with `error` populated. No tool accepts force refresh, credentials or a model name.
+Server: `codex-quota-guard-mcp`, version `0.4.0`, default stdio or explicitly configured [experimental shared Streamable HTTP](SHARED_HTTP.md). Eight v0.2 tools remain; `quota_status` additionally returns [monitor diagnostics](MONITOR.md), including `runtimeMode` and `requiresLiveClientConnection`. Successful results contain identical JSON in `structuredContent` and text content. Tool errors set `isError=true` with a bounded `{error:{code,message}}` payload; quota-read failures normally return a stale/unavailable snapshot with `error` populated. No tool accepts force refresh, credentials or a model name.
 
 Timestamps are ISO 8601 UTC strings; missing timestamps are `null`. Percent values are percentage points, not token counts. Paths must be absolute on the MCP host. Use the actual Codex task identifier consistently, not a descriptive label. `laneId` defaults to `primary`; `secondary` is only for small work; `unknown` fails safe.
 

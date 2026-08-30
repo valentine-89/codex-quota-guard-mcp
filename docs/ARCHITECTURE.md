@@ -5,7 +5,12 @@
 - `CodexAppServerClient` starts a short-lived official app-server, initializes JSON-RPC, reads account metadata and rate-limit windows, then terminates the child. It never reads auth files.
 - `QuotaGuardService` applies cache, lease, backoff, plan profiles, passive learning, admission, and defer/resume policies.
 - `StateStore` owns additive v0.2 SQLite persistence for cache/checkpoints plus samples, account-plan overrides, idempotent admissions, and quota-owned defer records.
-- `mcp-server` exposes eight bounded stdio tools.
+- `mcp-server` exposes eight bounded tools over stdio or opt-in shared HTTP.
+- `createRuntime` owns the shared service/store/monitor construction. The experimental
+  `http-main` holds a separate exclusive ownership lock, starts the monitor without
+  client initialization and uses `http-server` request-scoped protocol resources.
+  `http-connector` is a wire adapter with no SQLite or policy instances. See
+  [shared HTTP ownership, limits and acceptance boundaries](SHARED_HTTP.md).
 - `ProcessLifetime` owns stream/transport shutdown, a local parent-existence check,
   a60-second initialization deadline and a5-second shutdown ceiling. It terminates
   only its own MCP instance, never evicts a healthy initialized idle session, and

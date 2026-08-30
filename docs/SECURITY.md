@@ -13,7 +13,15 @@ The quota guard never opens Codex `auth.json`, browser stores, cookies, keyrings
 
 ## Process and network behavior
 
-The MCP server opens no listening socket and sends no telemetry. It communicates over stdio with Codex and starts the installed Codex app-server only when shared cache policy permits refresh. Any upstream account request is made by the official app-server.
+The default stdio MCP server opens no listening socket and sends no telemetry. It communicates over stdio with Codex and starts the installed Codex app-server only when shared cache policy permits refresh. Any upstream account request is made by the official app-server.
+
+The explicitly selected [shared HTTP core](SHARED_HTTP.md) opens a loopback-only
+listener with a required local bearer secret, exact Host/Origin checks and bounded
+requests/connections/body size. It accepts neither desktop capability headers nor
+executable-path registration over HTTP. Its connector refuses redirects and does
+not retry unconfirmed mutations. Guard secrets must be provisioned through protected
+local environment/configuration, never a shared repository or URL; no automatic
+secret provisioner or background service is installed by the normal setup.
 
 The optional monitor launches an explicitly configured trusted OpenAI desktop MCP server. It forwards only the existing desktop capability in memory, never writes a pipe value to configuration, and never implements private IPC. It reads only exact attached automation files for ownership comparison; all scheduler mutations go through the shipped tool and retain its authorization checks. The server path is executable configuration and must not point to untrusted code.
 
