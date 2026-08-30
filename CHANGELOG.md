@@ -4,6 +4,19 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-30
+
+### Changed
+
+- Replaced platform-specific supervision and direct stdio runtime with one authenticated, on-demand loopback core and lightweight leased connectors on Windows, WSL, Linux and macOS.
+- Restricted quota reads to a stable current ChatGPT account. API-key, Bedrock, signed-out and unstable identities fail safe without quota percentages or cached admission.
+- Gated five-minute early recovery on a live connector, waiting defer and valid scheduler capability; pending defers no longer keep any process alive.
+- Added a shared Node installer/uninstaller with POSIX modes or a Windows user DACL, disposable concurrent-connector acceptance, and x64/ARM64 CI coverage.
+
+### Removed
+
+- Removed Scheduled Task, supervisor, `wscript`, v0.5 state migration, OS services/daemons, and the public direct full-runtime stdio path.
+
 ### Documentation
 
 - Consolidated installation, managed runtime, Windows/WSL and monitor guidance around

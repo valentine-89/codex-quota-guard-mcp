@@ -25,7 +25,7 @@ const rl = require('node:readline').createInterface({input:process.stdin});
 rl.on('line', line => {
  const m=JSON.parse(line); if(m.id == null) return;
  if(process.argv.slice(2).join(' ') !== 'app-server --stdio') process.exit(8);
- const result = m.method==='account/read' ? {account:{type:'chatgpt', planType:'plus'}, home:process.env.CODEX_HOME}
+ const result = m.method==='account/read' ? {account:{type:'chatgpt', email:'fixture@example.invalid', planType:'plus'}, home:process.env.CODEX_HOME}
    : m.method==='account/rateLimits/read' ? {rateLimits:{primary:{usedPercent:10,windowDurationMins:300}}} : {};
  console.log(JSON.stringify({id:m.id,result}));
 });`);
@@ -37,6 +37,35 @@ rl.on('line', line => {
     assert.equal((response.account as unknown as { home: string }).home, config.codexHome);
     assert.ok(response.rateLimits.rateLimits);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("API-key auth is rejected before rate limits are requested", async () => {
+  const { root, command } = fixture(`
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+ const m=JSON.parse(line); if(m.id == null) return;
+ if(m.method==='account/rateLimits/read') process.exit(9);
+ const result=m.method==='account/read' ? {account:{type:'apiKey'}} : {};
+ console.log(JSON.stringify({id:m.id,result}));
+});`);
+  try {
+    await assert.rejects(new CodexAppServerClient({ ...testConfig(join(root, "state.sqlite")), codexCommand: command,
+      appServerTimeoutMs: 5_000 }).readQuota(), { code: "CHATGPT_LOGIN_REQUIRED" });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("signed-out or unstable ChatGPT identity is rejected before quota IO", async () => {
+  for (const account of ["null", "{type:'chatgpt',email:null}"]) {
+    const { root, command } = fixture(`
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+ const m=JSON.parse(line); if(m.id == null) return;
+ if(m.method==='account/rateLimits/read') process.exit(9);
+ console.log(JSON.stringify({id:m.id,result:m.method==='account/read'?{account:${account}}:{}}));
+});`);
+    try {
+      await assert.rejects(new CodexAppServerClient({ ...testConfig(join(root, "state.sqlite")), codexCommand: command,
+        appServerTimeoutMs: 5_000 }).readQuota(), { code: "CHATGPT_LOGIN_REQUIRED" });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });
 
 test("early app-server exit reports its redacted cause instead of waiting for quota timeout", async () => {

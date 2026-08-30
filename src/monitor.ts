@@ -22,10 +22,15 @@ export class QuotaMonitor {
   private stopped = false;
   private active: Promise<void> | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private hasLiveClients: () => boolean = () => true;
   constructor(codexHome: string, private readonly store: StateStore, private readonly service: QuotaGuardService,
     private readonly scheduler: SchedulerBridge, private readonly now: () => number = Date.now) {
     this.key = profileKey(codexHome);
   }
+
+  setLiveClients(read: () => boolean): void { this.hasLiveClients = read; }
+  isBusy(): boolean { return this.running || this.active !== undefined; }
+  wake(): void { if (!this.stopped) void this.tick(); }
 
   start(): void {
     const loop = async (): Promise<void> => {
@@ -55,7 +60,7 @@ export class QuotaMonitor {
     const key = `${this.key}:cleanup`;
     const ticket = this.store.monitor.claim(key, this.owner, this.now(), 15_000);
     if (!ticket) return;
-    const owns = (): boolean => !this.stopped && this.store.monitor.owns(key, ticket, this.now());
+    const owns = (): boolean => !this.stopped && this.hasLiveClients() && this.store.monitor.owns(key, ticket, this.now());
     let error: string | null = null;
     try {
       for (const record of records) {
@@ -71,7 +76,7 @@ export class QuotaMonitor {
   }
 
   private async runTick(): Promise<void> {
-    if (this.stopped || this.running || !this.scheduler.available()) return;
+    if (this.stopped || this.running || !this.hasLiveClients() || !this.scheduler.available()) return;
     await this.cleanup();
     if (this.stopped) return;
     const records = this.store.monitor.list(this.key);
@@ -81,7 +86,7 @@ export class QuotaMonitor {
     this.running = true;
     let next = this.now() + MONITOR_INTERVAL_MS;
     let error: string | null = null;
-    const owns = (): boolean => !this.stopped && this.store.monitor.owns(this.key, ticket, this.now());
+    const owns = (): boolean => !this.stopped && this.hasLiveClients() && this.store.monitor.owns(this.key, ticket, this.now());
     const renewal = setInterval(() => { if (!this.stopped) this.store.monitor.renew(this.key, ticket, this.now()); }, 20_000);
     renewal.unref();
     try {

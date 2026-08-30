@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { profileKey } from "./store.js";
 import { acquireCoreLock } from "./core-lock.js";
 import { managedCoreCanStop, readManagedSettings } from "./managed.js";
+import { ClientLeaseRegistry } from "./client-leases.js";
 
 async function main() {
   const token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
@@ -21,14 +22,17 @@ async function main() {
     release(); throw new Error("MANAGED_CORE_CONFIG_MISMATCH");
   }
   const runtime = createRuntime(config);
+  const clientLeases = new ClientLeaseRegistry(60_000);
+  runtime.service.setLiveClientCount(() => clientLeases.snapshot().liveClients);
+  runtime.monitor.setLiveClients(() => clientLeases.snapshot().liveClients > 0);
   let closeHttp: (() => Promise<void>) | undefined;
   try {
-    const http = await startHttpServer(() => createMcpServer(runtime.service), { token, port,
+    const http = await startHttpServer(() => createMcpServer(runtime.service), { token, port, clientLeases,
+      onClientLeaseChange: () => runtime.monitor.wake(),
       diagnostics: () => ({ pid: process.pid, mode: "shared-http", installationId: managed?.installationId ?? null,
         monitor: runtime.service.monitorStatus() }),
       ...(managed ? { bindDesktop: runtime.bindDesktop } : {}) });
     closeHttp = http.close;
-    runtime.service.setRuntimeMode("shared-http");
     // Server lifetime is independent of initialize/EOF/client disconnect.
     runtime.monitor.start();
     let stopping = false;
@@ -44,11 +48,14 @@ async function main() {
     };
     process.once("SIGINT", stop); process.once("SIGTERM", stop);
     if (managed) {
+      let noClientSince = Date.now();
       idleTimer = setInterval(() => {
         const state = http.diagnostics();
-        if (managedCoreCanStop(Date.now() - state.lastActivityAtMs, config.managedIdleMs,
-          state.activeRequests, runtime.service.hasPendingRecovery())) stop();
-      }, Math.min(30_000, config.managedIdleMs));
+        clientLeases.expire();
+        if (clientLeases.snapshot().liveClients > 0) noClientSince = Date.now();
+        if (managedCoreCanStop(Date.now() - noClientSince, 5_000, state.activeRequests,
+          runtime.monitor.isBusy())) stop();
+      }, 1_000);
       idleTimer.unref();
     }
     // No secret, capability, account data, or checkpoint contents in startup logs.

@@ -12,7 +12,7 @@ async function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "quota-monitor-"));
   const config = testConfig(join(dir, "state.sqlite"));
   const first = new StateStore(config.stateFile), second = new StateStore(config.stateFile);
-  let now = 1_000, reads = 0, writes = 0, cancels = 0, enabled = true;
+  let now = 1_000, reads = 0, writes = 0, cancels = 0, enabled = true, live = true;
   let raw = rawQuota(100, 20_000);
   let beforeSend = async (): Promise<void> => {};
   let fail = false;
@@ -34,12 +34,14 @@ async function fixture() {
   };
   const monitor = new QuotaMonitor(config.codexHome, first, service, bridge, () => now);
   const competing = new QuotaMonitor(config.codexHome, second, peer, bridge, () => now);
+  monitor.setLiveClients(() => live); competing.setLiveClients(() => live);
   const deferred = await service.deferUntilReset({ workspaceRoot: dir, taskId: "task", objective: "wait", completed: [], pending: [] });
   service.attachAutomation(deferred.deferId, "owned");
   return { dir, config, first, second, service, monitor, competing, deferred, key: profileKey(config.codexHome),
     reads: () => reads, writes: () => writes, cancels: () => cancels,
     advance: (ms = 300_000) => { now += ms; }, now: () => now,
     setRaw: (value: typeof raw) => { raw = value; }, setEnabled: (value: boolean) => { enabled = value; },
+    setLive: (value: boolean) => { live = value; },
     beforeSend: (callback: () => Promise<void>) => { beforeSend = callback; }, fail: () => { fail = true; },
     close: async () => { await monitor.stop(); await competing.stop(); first.close(); second.close(); rmSync(dir, { recursive: true, force: true }); },
   };
@@ -63,6 +65,18 @@ test("two monitors share a durable five-minute deadline and recover once after a
     await Promise.all([f.monitor.tick(), f.competing.tick()]);
     assert.equal(f.cancels(), 1); assert.equal(f.reads(), 2);
     assert.equal(f.first.monitor.list(f.key).length, 0);
+  } finally { await f.close(); }
+});
+
+test("pending defer does not poll or dispatch without a live connector", async () => {
+  const f = await fixture();
+  try {
+    const before = f.reads();
+    f.setRaw(rawQuota(0, 20_000)); f.setLive(false); f.advance();
+    await f.monitor.tick();
+    assert.equal(f.reads(), before); assert.equal(f.writes(), 0);
+    f.setLive(true); await f.monitor.tick();
+    assert.equal(f.reads(), before + 1); assert.equal(f.writes(), 1);
   } finally { await f.close(); }
 });
 

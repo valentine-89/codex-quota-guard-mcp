@@ -8,11 +8,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { ensureManagedCore, managedCoreCanStop, managedHealth, readManagedSettings, type ManagedSettings } from "../src/managed.js";
-import { pendingManagedRecovery } from "../src/managed-supervision.js";
 import { RenewableSchedulerRpc } from "../src/scheduler.js";
 import { startHttpServer } from "../src/http-server.js";
-import { profileKey, StateStore } from "../src/store.js";
-import { testConfig } from "./helpers.js";
 
 async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "quota-managed-"));
@@ -21,7 +18,7 @@ async function fixture() {
   await new Promise<void>(resolve => socket.listen(0, "127.0.0.1", resolve));
   const port = (socket.address() as { port: number }).port;
   await new Promise<void>(resolve => socket.close(() => resolve()));
-  const settings: ManagedSettings = { revision: 1, installationId: randomUUID(), port,
+  const settings: ManagedSettings = { revision: 2, installationId: randomUUID(), port,
     token: randomBytes(32).toString("base64url"), nodeExecutable: process.execPath,
     coreEntrypoint: resolve("tests/fixtures/managed-core.mjs"), guardConfig: join(directory, "guard.json") };
   const path = join(directory, "runtime.json");
@@ -34,7 +31,7 @@ test("managed settings validate private files, token and endpoints", async () =>
   const f = await fixture();
   try {
     assert.deepEqual(readManagedSettings(f.path), f.settings);
-    for (const change of [{ port: 80 }, { token: "weak" }, { coreEntrypoint: "relative.js" }, { revision: 2 }]) {
+    for (const change of [{ port: 80 }, { token: "weak" }, { coreEntrypoint: "relative.js" }, { revision: 1 }]) {
       writeFileSync(f.path, JSON.stringify({ ...f.settings, ...change }));
       assert.throws(() => readManagedSettings(f.path), /MANAGED_SETTINGS_INVALID/);
     }
@@ -45,30 +42,11 @@ test("managed settings validate private files, token and endpoints", async () =>
   } finally { await f.close(); }
 });
 
-test("managed core idle policy requires both inactivity and no recovery work", () => {
+test("core shutdown policy depends on connectors, requests and scheduler dispatch only", () => {
   assert.equal(managedCoreCanStop(300_000, 300_000, 0, false), true);
   assert.equal(managedCoreCanStop(299_999, 300_000, 0, false), false);
   assert.equal(managedCoreCanStop(300_000, 300_000, 1, false), false);
   assert.equal(managedCoreCanStop(300_000, 300_000, 0, true), false);
-});
-
-test("scheduled supervision recognizes only an attached active recovery", async () => {
-  const f = await fixture();
-  const config = testConfig(join(f.directory, "state.sqlite"));
-  config.codexHome = f.directory;
-  writeFileSync(f.settings.guardConfig, JSON.stringify({ stateDir: f.directory, codexHome: f.directory, monitorEnabled: true }));
-  const store = new StateStore(config.stateFile);
-  try {
-    assert.equal(await pendingManagedRecovery(f.path), false);
-    const key = profileKey(config.codexHome), now = Date.now();
-    const checkpoint = store.createCheckpoint(key, { workspaceRoot: f.directory, taskId: "task", objective: "wait",
-      completed: [], pending: [] }, now + 60_000, now);
-    const defer = store.createDefer(key, checkpoint, "task", now + 60_000, now);
-    store.monitor.enroll(key, defer.id, { fingerprint: "fingerprint", planType: "plus", limitId: "codex" }, now);
-    assert.equal(await pendingManagedRecovery(f.path), false);
-    store.attachAutomation(key, defer.id, "owned", now);
-    assert.equal(await pendingManagedRecovery(f.path), true);
-  } finally { store.close(); await f.close(); }
 });
 
 test("six bootstrap contenders elect one shared core, survive disconnect and recover after crash", { timeout: 30_000 }, async () => {

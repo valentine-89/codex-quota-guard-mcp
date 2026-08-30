@@ -28,6 +28,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function chatGptIdentity(response: unknown): string {
+  if (!isRecord(response) || !isRecord(response.account)
+    || response.account.type !== "chatgpt"
+    || typeof response.account.email !== "string" || response.account.email.trim() === "") {
+    throw new GuardError("CHATGPT_LOGIN_REQUIRED",
+      "Quota Guard requires the current stable ChatGPT login; API-key, Bedrock, other providers and signed-out sessions are unsupported.");
+  }
+  return JSON.stringify({ type: response.account.type, email: response.account.email,
+    planType: typeof response.account.planType === "string" ? response.account.planType : null });
+}
+
 function parseRetryAfter(data: unknown): number | null {
   if (!isRecord(data)) return null;
   const raw = data.retryAfterMs ?? data.retry_after_ms;
@@ -129,14 +140,15 @@ export class CodexAppServerClient {
 
     try {
       await call("initialize", {
-        clientInfo: { name: "codex-quota-guard-mcp", version: "0.5.1" },
+        clientInfo: { name: "codex-quota-guard-mcp", version: "0.6.0" },
         capabilities: { experimentalApi: false },
       });
       child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
       const account = await call("account/read", { refreshToken: false });
+      const identity = chatGptIdentity(account);
       const rateLimits = await call("account/rateLimits/read");
       const verifiedAccount = await call("account/read", { refreshToken: false });
-      if (JSON.stringify(account) !== JSON.stringify(verifiedAccount)) {
+      if (identity !== chatGptIdentity(verifiedAccount)) {
         throw new GuardError("ACCOUNT_CHANGED_DURING_READ", "Account changed while reading quota; wait for shared revalidation.");
       }
       if (!isRecord(account) || !isRecord(rateLimits)) {

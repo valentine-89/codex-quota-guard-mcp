@@ -50,7 +50,7 @@ const client = new Client({ name: "codex-quota-guard-live-acceptance", version: 
 try {
   await client.connect(transport);
   const server = client.getServerVersion();
-  assert.equal(server?.version, "0.5.1", "Registered entrypoint must expose MCP v0.5.1");
+  assert.equal(server?.version, "0.6.0", "Registered entrypoint must expose MCP v0.6.0");
   const tools = await client.listTools();
   const toolNames = tools.tools.map((tool) => tool.name).sort();
   assert.deepEqual(toolNames, ["checkpoint_create", "checkpoint_get", "defer_automation_attach", "defer_until_reset",

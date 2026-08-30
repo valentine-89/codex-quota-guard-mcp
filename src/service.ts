@@ -42,9 +42,10 @@ export class QuotaGuardService {
   private readonly key: string;
   private monitorCapability: () => boolean = () => false;
   private captureAutomation: ((defer: StoredDefer) => string | null) | undefined;
-  private runtimeMode: "stdio" | "shared-http" = "stdio";
+  private readonly runtimeMode = "shared-http" as const;
+  private liveClientCount: () => number = () => 0;
 
-  setRuntimeMode(mode: "stdio" | "shared-http"): void { this.runtimeMode = mode; }
+  setLiveClientCount(read: () => number): void { this.liveClientCount = read; }
 
   setMonitorCapability(capability: () => boolean): void { this.monitorCapability = capability; }
   setAutomationCapture(capture: (defer: StoredDefer) => string | null): void { this.captureAutomation = capture; }
@@ -54,7 +55,8 @@ export class QuotaGuardService {
       pendingRecords: this.store.monitor.list(this.key).length,
       nextPollAt: iso(state?.nextPollAt ?? null), lastPollAt: iso(state?.lastPollAt ?? null),
       lastError: state?.lastError ?? null, requiresLiveMcpProcess: true,
-      requiresLiveClientConnection: this.runtimeMode === "stdio", runtimeMode: this.runtimeMode };
+      requiresLiveClientConnection: true, runtimeMode: this.runtimeMode,
+      lifecycleMode: "codex-bound", liveClients: this.liveClientCount() };
   }
 
   hasPendingRecovery(): boolean { return this.store.monitor.list(this.key).length > 0; }
@@ -254,6 +256,11 @@ export class QuotaGuardService {
     } catch (error) {
       this.store.invalidateObservations(this.key);
       const guardError = toGuardError(error);
+      if (guardError.code === "CHATGPT_LOGIN_REQUIRED" || guardError.code === "ACCOUNT_CHANGED_DURING_READ") {
+        this.store.clearCache(this.key);
+        const next = nowMs + this.config.ttlMs.low;
+        return { ...this.unknownSnapshot(next, false), error: { code: guardError.code, message: guardError.message } };
+      }
       const kind = guardError.retryAfterMs !== null || /429|RATE_LIMIT/i.test(guardError.code)
         ? "rate-limit" : /TIMEOUT|SERVER|CLOSED|FAILED/i.test(guardError.code) ? "server" : "other";
       const nextBackoff = this.store.recordFailure(this.key, kind, guardError.code, nowMs, guardError.retryAfterMs, this.random);

@@ -20,15 +20,17 @@ import { createMcpServer } from "../src/mcp-server.js";
 import { StateStore } from "../src/store.js";
 import { QuotaGuardService } from "../src/service.js";
 import { rawQuota, testConfig } from "./helpers.js";
+import { ClientLeaseRegistry } from "../src/client-leases.js";
 
 async function fixture(extra: { maxConcurrentRequests?: number; maxBodyBytes?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "quota-http-"));
   const store = new StateStore(join(dir, "state.sqlite"));
   let reads = 0;
   const service = new QuotaGuardService(testConfig(join(dir, "state.sqlite")), store, { readQuota: async () => { reads++; return rawQuota(10); } });
-  service.setRuntimeMode("shared-http");
   const token = randomBytes(32).toString("base64url");
-  const http = await startHttpServer(() => createMcpServer(service), { token, ...extra });
+  const clientLeases = new ClientLeaseRegistry();
+  service.setLiveClientCount(() => clientLeases.snapshot().liveClients);
+  const http = await startHttpServer(() => createMcpServer(service), { token, clientLeases, ...extra });
   const clients: Client[] = [];
   return { dir, service, reads: () => reads, http, token,
     async connect() {
@@ -53,12 +55,40 @@ test("many HTTP clients share quota cache/admissions; disconnect does not close 
     const job = { workspaceRoot: f.dir, taskId: "task", jobId: "idempotent", jobClass: "small", description: "shared HTTP" };
     const jobs = await Promise.all(clients.map(c => c.callTool({ name: "job_preflight", arguments: job })));
     assert.equal(jobs.filter(j => (j.structuredContent as Record<string, unknown>)?.admissionRecorded).length, 1);
-    assert.equal(((snapshots[0]!.structuredContent as Record<string, unknown>)?.monitor as Record<string, unknown>).requiresLiveClientConnection, false);
+    const monitor = (snapshots[0]!.structuredContent as Record<string, unknown>)?.monitor as Record<string, unknown>;
+    assert.equal(monitor.requiresLiveClientConnection, true);
+    assert.equal(monitor.lifecycleMode, "codex-bound");
     await Promise.all(clients.map(c => c.close()));
     const next = await f.connect();
     assert.equal((await next.callTool({ name: "quota_status", arguments: {} })).isError, undefined);
     assert.equal(f.reads(), 1);
   } finally { await f.close(); }
+});
+
+test("connector leases register, renew, unregister and expire only in memory", async () => {
+  let now = 1_000;
+  const token = randomBytes(32).toString("base64url");
+  const leases = new ClientLeaseRegistry(60_000, () => now);
+  const http = await startHttpServer(() => { throw Error("unused"); }, { token, clientLeases: leases });
+  const url = http.url.replace("/mcp", "/client-lease");
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  try {
+    const registered = await fetch(url, { method: "POST", headers, body: JSON.stringify({ action: "register" }) });
+    const clientId = (await registered.json() as { clientId: string }).clientId;
+    assert.equal(leases.snapshot().liveClients, 1);
+    now += 20_000;
+    assert.equal((await fetch(url, { method: "POST", headers,
+      body: JSON.stringify({ action: "renew", clientId }) })).status, 200);
+    now += 59_999; assert.equal(leases.snapshot().liveClients, 1);
+    now += 1; assert.equal(leases.snapshot().liveClients, 0);
+    assert.equal((await fetch(url, { method: "POST", headers,
+      body: JSON.stringify({ action: "renew", clientId }) })).status, 410);
+    const next = await fetch(url, { method: "POST", headers, body: JSON.stringify({ action: "register" }) });
+    const nextId = (await next.json() as { clientId: string }).clientId;
+    assert.equal((await fetch(url, { method: "POST", headers,
+      body: JSON.stringify({ action: "unregister", clientId: nextId }) })).status, 200);
+    assert.equal(leases.snapshot().liveClients, 0);
+  } finally { await http.close(); }
 });
 
 test("HTTP rejects missing/bad authentication, hostile Origin/Host, query paths and oversize bodies", async () => {

@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)][string]$Path)
 $ErrorActionPreference = 'Stop'
 $targetPath = [IO.Path]::GetFullPath($Path)
-if ([IO.Path]::GetFileName($targetPath) -notmatch '^managed-[a-f0-9]{64}$') { throw 'Expected a dedicated Guard managed directory' }
+if ([IO.Path]::GetFileName($targetPath) -notmatch '^core-[a-f0-9]{64}$') { throw 'Expected a dedicated Guard core directory' }
 if (Test-Path -LiteralPath $targetPath) {
   $item = Get-Item -LiteralPath $targetPath -Force
   if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unsafe managed directory' }

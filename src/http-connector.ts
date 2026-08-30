@@ -7,9 +7,19 @@ import { bindManagedDesktop, ensureManagedCore, managedUrl, type ManagedSettings
 async function main() {
   const parent = process.ppid;
   const controller = new AbortController();
-  const lifetime = new ProcessLifetime({ input: process.stdin, output: process.stdout,
-    parentAlive: () => parentIsAlive(parent), cleanup: async () => { controller.abort(); },
-    exit: code => process.exit(code) });
+  let leaseId: string | undefined;
+  const leaseTarget: { url?: URL } = {};
+  let token = "";
+  const updateLease = async (action: "register" | "renew" | "unregister"): Promise<boolean> => {
+    if (!leaseTarget.url) return false;
+    const body = action === "register" ? { action } : { action, clientId: leaseId };
+    const response = await fetch(leaseTarget.url, { method: "POST", redirect: "error",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(5_000) });
+    if (!response.ok) return false;
+    if (action === "register") leaseId = (await response.json() as { clientId?: string }).clientId;
+    return action === "register" ? typeof leaseId === "string" : true;
+  };
   const settingsPath = process.env.CODEX_QUOTA_GUARD_MANAGED_SETTINGS;
   let managed: ManagedSettings | undefined;
   let lastHealth = 0;
@@ -41,11 +51,26 @@ async function main() {
   };
   await prepare();
   const url = new URL(process.env.CODEX_QUOTA_GUARD_HTTP_URL ?? "");
-  const token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
+  token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== "/mcp"
     || url.username || url.password || url.search || url.hash || !/^[a-zA-Z0-9_-]{32,256}$/.test(token)) {
     throw new Error("INVALID_LOCAL_ENDPOINT");
   }
+  leaseTarget.url = new URL("/client-lease", url);
+  if (!await updateLease("register")) throw new Error("CLIENT_LEASE_REGISTER_FAILED");
+  const leaseTimer = setInterval(() => {
+    void updateLease("renew").then(async renewed => {
+      if (!renewed) { leaseId = undefined; await updateLease("register"); }
+    }).catch(() => undefined);
+  }, 20_000);
+  leaseTimer.unref();
+  const lifetime = new ProcessLifetime({ input: process.stdin, output: process.stdout,
+    parentAlive: () => parentIsAlive(parent), cleanup: async () => {
+      clearInterval(leaseTimer);
+      if (leaseId) await updateLease("unregister").catch(() => false);
+      controller.abort();
+    },
+    exit: code => { process.exitCode = code; process.stdin.pause(); } });
   let active = 0, buffer = Buffer.alloc(0), protocolVersion = "2025-11-25";
   let output = Promise.resolve(), queuedOutput = 0;
   const write = (message: unknown) => {

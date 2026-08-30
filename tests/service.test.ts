@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { GuardError } from "../src/errors.js";
 import { QuotaGuardService, type QuotaReader } from "../src/service.js";
-import { StateStore } from "../src/store.js";
+import { profileKey, StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
 test("many service instances use one shared cached refresh", async () => {
@@ -69,7 +69,8 @@ test("failed refresh enters shared backoff and preserves a safe unavailable stat
   const path = join(directory, "state.sqlite");
   const store = new StateStore(path);
   try {
-    const service = new QuotaGuardService(testConfig(path), store, {
+    const config = testConfig(path);
+    const service = new QuotaGuardService(config, store, {
       readQuota: async () => { throw new GuardError("APP_SERVER_TIMEOUT", "timed out"); },
     }, { now: () => 1_000, random: () => 0.5 });
     const result = await service.quotaStatus();
@@ -80,6 +81,33 @@ test("failed refresh enters shared backoff and preserves a safe unavailable stat
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("login rejection clears an older quota snapshot and forces every preflight to defer", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "quota-guard-auth-switch-"));
+  const path = join(directory, "state.sqlite");
+  const store = new StateStore(path);
+  let now = 1_000, reject = false;
+  try {
+    const config = testConfig(path);
+    const service = new QuotaGuardService(config, store, {
+      readQuota: async () => {
+        if (reject) throw new GuardError("CHATGPT_LOGIN_REQUIRED", "ChatGPT required");
+        return rawQuota(10);
+      },
+    }, { now: () => now });
+    assert.equal((await service.quotaStatus()).fiveHour?.remainingPercent, 90);
+    reject = true; now += 1_000_000;
+    const status = await service.quotaStatus();
+    assert.equal(status.error?.code, "CHATGPT_LOGIN_REQUIRED");
+    assert.equal(status.activeBucket, null);
+    assert.equal(status.fiveHour, null);
+    assert.equal(store.getCache(profileKey(config.codexHome)), null);
+    const preflight = await service.jobPreflight({ workspaceRoot: directory, taskId: "task", jobId: "auth",
+      jobClass: "small", description: "must defer" });
+    assert.equal(preflight.decision, "defer");
+    assert.equal(preflight.quotaPath, "unavailable");
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("concurrent calls within one MCP service do not reacquire their own refresh lease", async () => {

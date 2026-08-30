@@ -1,48 +1,11 @@
 # Architecture
 
-## Components
+`dist/connector.js` is the only MCP entrypoint registered with Codex. It contains no SQLite store, policy engine, app-server client, or scheduler state. It authenticates to the loopback core, registers an in-memory client lease, renews every 20 seconds, and unregisters on normal shutdown.
 
-- `CodexAppServerClient` starts a short-lived official app-server, initializes JSON-RPC, reads account metadata and rate-limit windows, then terminates the child. It never reads auth files.
-- `QuotaGuardService` applies cache, lease, backoff, plan profiles, passive learning, admission, and defer/resume policies.
-- `StateStore` owns additive SQLite persistence for cache/checkpoints plus samples, account-plan overrides, idempotent admissions, quota-owned defer records and monitor recovery state.
-- `mcp-server` exposes eight bounded tools over direct stdio or managed shared HTTP.
-- `createRuntime` owns the shared service/store/monitor construction. Managed
-  `http-main` holds a separate exclusive ownership lock, starts the monitor without
-  client initialization and uses `http-server` request-scoped protocol resources.
-  Authenticated non-health requests update its activity clock; it exits after the
-  configured idle delay only when there are no active requests or pending recoveries.
-  `http-connector` is a wire adapter with no SQLite or policy instances. See
-  [managed ownership and recovery](MANAGED_CORE.md).
-- `ProcessLifetime` owns stream/transport shutdown, a local parent-existence check,
-  a60-second initialization deadline and a5-second shutdown ceiling. It terminates
-  only its own MCP instance, never evicts a healthy initialized idle session, and
-  starts the monitor only after initialization.
-- `QuotaMonitor` coordinates five-minute quota checks using durable SQLite lease generations; `DesktopSchedulerBridge` advances only exact attached heartbeats through the installed OpenAI MCP server. Local cleanup runs independently of quota reads. See [monitor lifecycle](MONITOR.md).
+The first connector starts `dist/core.js` on demand from private runtime settings. Concurrent starts race on the same exclusive OS/SQLite ownership lock; only one core wins. The core binds only `127.0.0.1`, requires the private bearer, validates Host and Origin, and creates request-scoped MCP protocol objects around one shared service/store.
 
-## Refresh sequence
+The core has three kinds of temporary work: authenticated requests, scheduler dispatch, and live connector leases. With none active, it shuts down after about five seconds. A crashed connector's lease expires after 60 seconds. A durable defer is data, not a process-lifetime reason.
 
-1. Hash the canonical Codex home to select the shared profile cache.
-2. Return a fresh snapshot immediately when its adaptive TTL has not expired.
-3. Return a stale snapshot while shared backoff is active.
-4. Atomically acquire a refresh lease. Non-owners return cache with `refreshInProgress=true`.
-5. Start `codex app-server --stdio`, send `initialize`, `account/read`, and `account/rateLimits/read`; re-read account metadata and reject an observed account change.
-6. Normalize the active bucket, explicitly labelled secondary/reserve buckets, credits, spend controls, and arbitrary long windows; feed a valid fresh five-hour delta into passive learning. An exact weekly-only primary uses a3% warning/defer profile and no five-hour samples.
-7. Decorate the snapshot with the current account-plan profile, store it, clear backoff, and release the lease.
+Quota refresh starts a short-lived `codex app-server --stdio` child, performs `account/read(refreshToken:false)`, validates stable ChatGPT identity, reads rate limits, re-reads identity, and terminates the child. SQLite provides single-flight refresh, cache, backoff, admission, checkpoint and defer ownership.
 
-The cache profile key is derived from the normalized Codex home. The account fingerprint is a SHA-256 hash of account type and normalized email. It scopes overrides, admissions and learning; the email itself is never persisted. Missing account identity prevents a recorded admission or profile mutation. An account/plan change invalidates pending intervals and never reuses another profile's mean or override.
-
-## Admission learning
-
-Each non-deferred `job_preflight` inserts an idempotent admission keyed by profile, account, plan, role/limit bucket, and caller job ID. Pending admissions accumulate until a later fresh snapshot reports a positive five-hour delta. The delta is divided by the pending count and stored in a 20-observation rolling mean. Homogeneous intervals also update the matching job-class mean; mixed intervals update only the global mean. Reset epochs and identity changes isolate samples automatically. Secondary long-only and primary weekly-only buckets never fabricate a five-hour learning sample. Weekly-only quota at or below its threshold defers only for a confirmed reset strictly under 24 hours; otherwise `weekly_advisory` warns without a Guard stop or monitor wake.
-
-## Defer ownership
-
-Every `defer_until_reset` creates a local defer UUID linked to its checkpoint. Codex attaches the heartbeat ID after creation; ownership is immutable and cannot be assigned to another defer. Manual resume atomically supersedes active records matching Codex home, workspace, task and role (optionally a specific defer ID) before quota revalidation. Returned IDs are best-effort cancellation hints. An automation wake must name its defer UUID; early, wrong-scope, missing or superseded wakes exit. A due wake atomically claims the record as `fired`, so duplicate invocations cannot run it twice.
-
-SQLite `user_version=3` migrations are transactional and additive, adding monitor deadlines and a recovery outbox. Old cache/checkpoint rows survive. Rolling samples are bounded per account/plan/bucket/class; idempotency records and checkpoints persist. Guard processes share WAL, a busy timeout and leases. Do not run older binaries against migrated state for ongoing work.
-
-## Failure model
-
-RPC errors are reduced to bounded error codes/messages. A missing rate-limit method becomes `CODEX_UPGRADE_REQUIRED`. Failures update a shared backoff record so concurrent tasks cannot create retry storms. Existing snapshots remain available with `stale=true`.
-
-MCP cannot interrupt hidden model reasoning or a command already running. `job_preflight` therefore guards the boundary immediately before expensive, hard-to-stop work.
+There is no direct full-runtime stdio deployment, supervisor, Scheduled Task, service, daemon, launchd/systemd unit, or Codex PID discovery.

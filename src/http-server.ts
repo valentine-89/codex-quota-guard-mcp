@@ -4,6 +4,7 @@ import type { Socket } from "node:net";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { ClientLeaseRegistry } from "./client-leases.js";
 
 export interface HttpServerOptions {
   token: string;
@@ -14,6 +15,8 @@ export interface HttpServerOptions {
   requestTimeoutMs?: number;
   diagnostics?: () => object;
   bindDesktop?: (pipePath: string, taskId: string) => Promise<boolean>;
+  clientLeases?: ClientLeaseRegistry;
+  onClientLeaseChange?: () => void;
   now?: () => number;
 }
 
@@ -45,16 +48,18 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) { reply(res, 401); return; }
     if (closing) { reply(res, 503); return; }
     if (req.url === "/health" && req.method === "GET") {
-      reply(res, 200, { service: "codex-quota-guard", activeRequests: active, ...options.diagnostics?.() }); return;
+      reply(res, 200, { service: "codex-quota-guard", activeRequests: active,
+        ...(options.clientLeases?.snapshot() ?? {}), ...options.diagnostics?.() }); return;
     }
+    const clientLease = req.url === "/client-lease" && options.clientLeases !== undefined;
     const desktopBinding = req.url === "/desktop-session" && options.bindDesktop !== undefined;
-    if (req.url !== "/mcp" && !desktopBinding) { reply(res, 404); return; }
+    if (req.url !== "/mcp" && !desktopBinding && !clientLease) { reply(res, 404); return; }
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); reply(res, 405); return; }
     if (active >= maxRequests) { res.setHeader("Retry-After", "1"); reply(res, 503); return; }
     if (!/^application\/json(?:\s*;|$)/i.test(req.headers["content-type"] ?? "")) { reply(res, 415); return; }
     // Authenticated health probes do not keep an otherwise idle core alive.
     lastActivityAtMs = now();
-    const bodyLimit = desktopBinding ? Math.min(maxBody, 4096) : maxBody;
+    const bodyLimit = desktopBinding || clientLease ? Math.min(maxBody, 4096) : maxBody;
     if (Number(req.headers["content-length"] ?? 0) > bodyLimit) { reply(res, 413); return; }
     active++;
     let protocol: McpServer | undefined;
@@ -74,6 +79,21 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
       try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
       catch { reply(res, 400); return; }
       if (res.destroyed || res.writableEnded) return;
+      if (clientLease) {
+        const input = body as Record<string, unknown> | null;
+        if (!input || Array.isArray(input) || typeof input.action !== "string") { reply(res, 400); return; }
+        if (input.action === "register" && Object.keys(input).length === 1) {
+          const clientId = options.clientLeases!.register();
+          options.onClientLeaseChange?.(); reply(res, 200, { clientId }); return;
+        }
+        if ((input.action === "renew" || input.action === "unregister")
+          && Object.keys(input).sort().join(",") === "action,clientId" && typeof input.clientId === "string") {
+          const accepted = input.action === "renew" ? options.clientLeases!.renew(input.clientId)
+            : options.clientLeases!.unregister(input.clientId);
+          options.onClientLeaseChange?.(); reply(res, accepted ? 200 : 410, { accepted }); return;
+        }
+        reply(res, 400); return;
+      }
       if (desktopBinding) {
         const input = body as Record<string, unknown> | null;
         if (!input || Array.isArray(input) || Object.keys(input).sort().join(",") !== "pipePath,taskId"

@@ -4,7 +4,7 @@ import type { AppServerQuotaResult } from "../src/types.js";
 export function testConfig(stateFile: string): GuardConfig {
   return {
     stateDir: stateFile.replace(/[\\/][^\\/]+$/, ""), stateFile,
-    codexHome: "C:\\test\\codex-home", codexCommand: "codex", managedIdleMs: 300_000,
+    codexHome: "C:\\test\\codex-home", codexCommand: "codex",
     planDefaults: { freeGo: 20, standard: 10, pro: 5, unknown: 15 },
     sampleWindow: 20, minSamples: 3, safetyFactor: 1.5, maxThreshold: 50, weeklyOnlyRemainingPercent: 3,
     cautionMarginPercent: 5, maxAutomationWaitMs: 86_400_000, manualResumeMinAgeMs: 60_000,

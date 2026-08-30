@@ -13,7 +13,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 if (process.argv.includes("--child")) {
-  await import("../dist/http-main.js");
+  await import("../dist/core.js");
   process.on("message", async message => {
     if (message === "stop") { process.emit("SIGTERM"); return; }
     if (message !== "scheduler-probe") return;
@@ -57,6 +57,8 @@ if (process.argv.includes("--child")) {
   env.CODEX_QUOTA_GUARD_HTTP_PORT = String(port);
   env.CODEX_QUOTA_GUARD_HTTP_TOKEN = randomBytes(32).toString("base64url");
   env.CODEX_QUOTA_GUARD_HTTP_URL = `http://127.0.0.1:${port}/mcp`;
+  // This fixture owns its isolated core directly; never adopt the production settings endpoint.
+  delete env.CODEX_QUOTA_GUARD_MANAGED_SETTINGS;
   const child = spawn(process.execPath, [resolve("scripts/shared-core-acceptance.mjs"), "--child"], {
     env, detached: true, windowsHide: true, stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
@@ -94,13 +96,13 @@ if (process.argv.includes("--child")) {
     assert.equal(scheduler.schedulerReadAfterDisconnect, true);
     const interop = process.argv.includes("--wsl");
     const connector = new Client({ name: "shared-connector-live", version: "1" }); clients.push(connector);
-    let command = process.execPath, args = [resolve("dist/http-connector.js")];
+    let command = process.execPath, args = [resolve("dist/connector.js")];
     if (interop) {
       // Execute Windows Node from WSL: no LAN listener and no Linux/Windows SQLite mixing.
       command = "wsl.exe";
       const windowsNode = registration.env?.CODEX_QUOTA_GUARD_NODE ?? process.execPath;
       const wslNode = execFileSync("wsl.exe", ["--exec", "wslpath", "-u", windowsNode], { encoding: "utf8" }).trim();
-      args = ["--exec", wslNode, resolve("dist/http-connector.js")];
+      args = ["--exec", wslNode, resolve("dist/connector.js")];
       const forwarded = ["CODEX_QUOTA_GUARD_HTTP_TOKEN", "CODEX_QUOTA_GUARD_HTTP_URL"];
       env.WSLENV = [...new Set([...(env.WSLENV ?? "").split(":").filter(Boolean).map(s => s.replace(/\/w$/, "")), ...forwarded])].join(":");
     }

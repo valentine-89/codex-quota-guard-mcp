@@ -1,236 +1,78 @@
-# Codex Quota Guard MCP
+# Codex Quota Guard MCP 0.6.0
 
-`codex-quota-guard-mcp` is a local Model Context Protocol server that lets concurrent Codex tasks share one adaptive ChatGPT quota snapshot. It detects the current plan and runtime credit capability, learns passive part-job cost, prevents expensive work from starting near exhaustion, and stores resumable checkpoints. It also exposes independent `primary` and `secondary` quota roles and supports accounts whose primary allowance reports only a weekly window.
+Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official `codex app-server` interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
-It does **not** read `auth.json`, copy OAuth tokens, scrape the Codex UI, route model traffic, or send telemetry.
+## Security and lifecycle guarantees
 
-## How it works
-
-```text
-Codex tasks ──stdio wire connectors──> one Windows shared HTTP core
-                                          │
-                                          ├── shared SQLite cache/lease/backoff
-                                          │
-                                          └── one short-lived codex app-server refresh
-                                      ├── account/read
-                                      └── account/rateLimits/read
-```
-
-The five-hour window is identified by `windowDurationMins = 300`; longer windows are retained without assuming a weekly period or fixed slot order. The active/default bucket supplies `primary`; the separately identified reserve supplies `secondary`. The adapter currently recognizes the observed backend bucket ID `base_model_inference`, not a display/model name. This ID is not a guaranteed public role API: if it changes, unknown buckets remain informational and secondary work fails safe. Public callers use roles, so a model rename alone does not change the contract.
-
-This is an **advisory admission guard**, not a hard token limit. It cannot stop an in-flight turn, save a checkpoint after the agent loses access, change the selected model, or override an upstream quota rejection. Its local monitor can advance only quota-guard-owned heartbeats through the supported desktop scheduler bridge.
+- Only the current stable `account.type === "chatgpt"` session is supported. API-key, Bedrock, signed-out, external-token and unstable identities return `CHATGPT_LOGIN_REQUIRED`; no quota percentage is read or cached for them.
+- One authenticated `127.0.0.1` core owns SQLite and quota refresh for a Codex profile. Every Codex task gets only a small stdio connector.
+- Connectors renew an in-memory lease every 20 seconds. A clean disconnect is observed immediately; a crashed connector expires after 60 seconds.
+- The core exits about five seconds after the last connector disappears and no request or scheduler dispatch is active. Pending defers do not keep it alive.
+- The five-minute early-recovery poll runs only when a connector is alive, a defer is waiting, and the current Codex task supplied a valid scheduler capability.
+- There is no Scheduled Task, service, daemon, `launchd`, `systemd`, `wscript`, elevation request, Codex PID scan, browser login, or OAuth fallback.
 
 ## Requirements
 
-- Node.js 22.13 or newer.
-- An installed Codex CLI/app-server signed in with ChatGPT.
-- A Codex version that supports `account/rateLimits/read`. Older versions return `CODEX_UPGRADE_REQUIRED`; direct OAuth fallback is intentionally unsupported.
+- Node.js 22.13 or newer (Node 22 and 24 are CI-tested).
+- A current Codex installation signed in with ChatGPT.
+- PowerShell 7 (`pwsh`) on Windows, used only to apply a private user DACL; elevation is not requested.
 
-### Windows and WSL2
+Windows 10/11 on physical hardware or in a VM is treated identically. Windows x64 uses x64 Node/Codex; Windows ARM64 uses native ARM64 binaries or Windows' own compatibility layer. The Guard never detects Parallels, VMware, UTM, or the macOS host.
 
-For a Windows desktop installation that switches between native and WSL agent
-mode, use the [managed Windows-hosted installation](docs/MANAGED_CORE.md).
-Both callers then use the same Windows ChatGPT profile, guard process runtime,
-and shared cache. WSL interoperability must be enabled. No credential copying,
-Windows elevation, or periodic model invocation is required.
+## Install
 
-Linux-native WSL is also supported with Linux Node/Codex and its own signed-in
-ChatGPT profile. Do not mix Windows npm shims with Linux Node, or open the same
-SQLite state concurrently from Windows and Linux. See the platform guide for
-tested configurations, workspace path conversion, and scheduler limitations.
+This package is private and is installed from its GitHub checkout, not npm:
 
-## Install from source
-
-For the recommended Windows/WSL shared installation, see [managed deployment](docs/MANAGED_CORE.md). It runs one service/store/monitor core plus lightweight per-connection wire adapters, with no full-process fallback. The direct stdio installation below remains the simple cross-platform route.
-
-```powershell
-git clone https://github.com/valentine-89/codex-quota-guard-mcp.git
-cd codex-quota-guard-mcp
+```text
 npm ci
 npm run check
+node scripts/install.mjs
 ```
 
-The command is intentionally ordinary Node.js: no global package install and no credential copy is needed. `npm run check` includes typecheck, lint, tests, and a fresh build.
+The installer preserves unrelated `config.toml` content, creates a private local bearer and runtime settings, and registers the absolute Node executable with `dist/connector.js`. It does not start a persistent process. Restart or reconnect Codex after installation so it opens the new connector.
 
-On Windows, including a checkout used from WSL through Windows interop, locate the
-installed versioned scheduler server when present, verify it, then run the managed
-installer with Windows Node:
+On a Windows machine that also uses WSL, run the installer with Windows Node from `pwsh`; both Windows and WSL tasks then use the Windows-hosted core and the same Windows profile. Native Linux and native macOS each use their own local Node, Codex login and state. Do not share Windows login/state with a macOS host.
 
-```powershell
-$pluginRoot = Join-Path $env:USERPROFILE '.codex\plugins\cache\openai-bundled\codex-app-tools'
-$schedulerServer = Get-ChildItem -LiteralPath $pluginRoot -Recurse -Filter server.mjs -File -ErrorAction SilentlyContinue |
-  Sort-Object LastWriteTimeUtc -Descending |
-  Select-Object -First 1
-if ($null -ne $schedulerServer) {
-  node scripts/scheduler-bridge-doctor.mjs --server $schedulerServer.FullName
-  $env:CODEX_QUOTA_GUARD_SCHEDULER_SERVER = $schedulerServer.FullName
-}
-node scripts/install-managed.mjs
+## Uninstall
+
+Remove only the MCP registration and stop an authenticated running v0.6 core:
+
+```text
+node scripts/uninstall.mjs
 ```
 
-It merges the MCP registration, creates one private per-user shared core, and
-installs a least-privilege no-console recovery probe. It preserves unrelated Codex
-configuration and never requests elevation. If `codex-app-tools` is absent, quota
-protection still installs but early heartbeat advancement reports unavailable; do
-not download or invent a substitute. See [the managed deployment guide](docs/MANAGED_CORE.md).
-Open a new Codex task after installation; already-open tasks retain their old MCP
-process and tool inventory.
+Also delete the validated v0.6 private state directory:
 
-Linux and macOS use the direct stdio registration below. Linux-native WSL is a
-separate Linux installation; do not share its SQLite database or Codex home with
-the Windows managed core.
-
-Register the built entrypoint in `%USERPROFILE%\.codex\config.toml` on Windows:
-
-```toml
-[mcp_servers.codex_quota_guard]
-command = 'C:\Program Files\nodejs\node.exe'
-args = ['C:\path\to\codex-quota-guard-mcp\dist\main.js']
-startup_timeout_sec = 30
+```text
+node scripts/uninstall.mjs --purge
 ```
 
-Use equivalent absolute paths on Linux or macOS. Respect a custom `CODEX_HOME`; merge this entry without replacing other configuration. Merge [`examples/AGENTS-snippet.md`](examples/AGENTS-snippet.md) into the intended global or project `AGENTS.md`, preserving existing instructions. Then open a new Codex task so tools and instructions reload. Registration alone does not make an agent call the guard.
+Both modes preserve unrelated Codex configuration and write a configuration backup. The purge refuses paths outside the recognized Guard-owned directory.
 
-See [the complete install, upgrade and uninstall guide](docs/GETTING_STARTED.md). This repository is installed from source; it is not a published npm package. Installation does not require changing models or buying credits.
+## MCP use
 
-### First-run verification
+The public contract has eight tools:
 
-1. Start a new Codex task after editing `config.toml`.
-2. Call `quota_status` once. Confirm `stale=false`, `refreshInProgress=false`, and a usable path for the intended role. `source` may be `codex-app-server` or a valid shared `cache`; inspect `planType` and both `lanes` entries.
-3. Before a bounded inspection, call `job_preflight` using a stable unique `jobId`, the current `taskId`, an absolute `workspaceRoot`, `jobClass: "small"`, and a short `description`. This writes an admission, not a token charge; retries reuse the ID.
-4. For a long build/test/deploy, call `job_preflight` immediately before starting it. A `defer` result must be checkpointed and deferred; do not start the command.
+- `quota_status`: call near the beginning of long work.
+- `job_preflight`: call once, with a stable `jobId`, before each substantial token-consuming segment.
+- `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare` support policy and controlled resume.
 
-`lanes.secondary.available` means a bucket was detected, not that it has spendable allowance. A lightweight task uses `jobClass: "small"` and `sessionRole: "lightweight"` (or `laneId: "secondary"`), then obeys the preflight decision. A primary task uses `laneId: "primary"` (the default). A missing or exhausted secondary lane never borrows primary allowance.
+Do not call the Guard before every shell command, small file read, or trivial edit. No tool accepts credentials, a force-refresh flag, or a model name.
 
-### Weekly-only primary allowances
+`quota_status.monitor` reports `runtimeMode="shared-http"`, `requiresLiveClientConnection=true`, and `lifecycleMode="codex-bound"`.
 
-When the active primary bucket reports a valid 10,080-minute weekly window and no 300-minute window, the profile uses `policyMode="weekly_only"`. It does not guess that an absent or malformed window is weekly-only. The default threshold is 3% remaining (configuration range 2–5%, with the normal per-account/plan override still available), and passive five-hour learning is disabled.
+## Verification
 
-- Above 3%: normal admission; the five-point caution band still warns near exhaustion.
-- At/below 3% with a known reset strictly under 24 hours, including reset grace: defer and permit a one-shot heartbeat.
-- At/below 3% with reset 24 hours or farther away, or unknown: return `caution`/`quotaPath="weekly_advisory"`, create no automation, and do not impose a Guard stop. This is warning-only and cannot make OpenAI accept work after the backend allowance is actually exhausted.
-
-Stale/refreshing data, spend control, exhausted individual limits and unknown reached-limit types still fail safe. The monitor never advances an existing heartbeat using a warning-only weekly result.
-
-## Tools
-
-| Tool | Purpose |
-| --- | --- |
-| `quota_status` | Return the shared quota snapshot; callers cannot force refresh. |
-| `job_preflight` | Decide admission and record one idempotent passive part-job sample candidate. |
-| `quota_profile` | Inspect, adjust, or reset the current account/plan threshold. |
-| `checkpoint_create` | Store a bounded, redacted task checkpoint. |
-| `checkpoint_get` | Retrieve a checkpoint by ID or latest workspace/task match. |
-| `defer_until_reset` | Checkpoint and produce `resumeAt` plus a Codex heartbeat prompt. |
-| `defer_automation_attach` | Bind the created heartbeat ID to its quota-owned defer record. |
-| `resume_prepare` | Supersede manual defers or validate an automation wake before work. |
-
-`defer_until_reset` prepares the automation contract. The calling Codex task must create the heartbeat and immediately attach its ID. On manual resume, `resume_prepare` returns only matching quota-guard automation IDs for best-effort deletion. A heartbeat whose defer was superseded exits without doing work. The managed monitor can advance attached heartbeats through the installed desktop scheduler bridge; it does not control the UI.
-
-### Primary and secondary sessions
-
-The role split is deliberately model-agnostic:
-
-| Role | Source | Intended use | If absent/exhausted |
-| --- | --- | --- | --- |
-| `primary` | active/default bucket, unless explicitly identified as reserve | main work and long jobs | checkpoint/defer until its constraints clear |
-| `secondary` | recognized backend reserve bucket | small/lightweight work while primary waits | do not borrow primary; return `defer` |
-
-For example, when app-server reports primary five-hour remaining `0%` and a secondary long-window remaining `95%`, `quota_status` reports both facts. A lightweight preflight can be admitted on `secondary`; a primary preflight remains deferred. The guard does not select or rename the model used by Codex, and it cannot manufacture a reserve bucket when app-server does not report one.
-
-## Plan profiles and passive learning
-
-| Runtime plan family | Cold-start remaining threshold |
-| --- | ---: |
-| Free / Go | 20% |
-| Plus / Team / fixed Business, Enterprise, Edu | 10% |
-| Pro / Prolite | 5% |
-| Unknown | 15% |
-
-After three valid observations, the automatic threshold is `max(plan baseline, ceil(rolling mean × 1.5))`. The rolling window keeps 20 observations. The final threshold is `clamp(auto + user override, 1, 50)`. The override persists per Codex home + hashed account + plan until `quota_profile reset`. Positive adjustments stop earlier; negative adjustments allow work closer to exhaustion. These percentages are guard defaults, not OpenAI token allocations.
-
-Passive learning divides the increase in five-hour usage between fresh snapshots by admissions in that interval. Zero-delta admissions accumulate; duplicates do not count again. Resets, account/plan changes, stale/backoff gaps, negative deltas and intervals with no admission are discarded. Homogeneous intervals train a job-class mean; mixed intervals train only the general mean. Secondary long-only allowances do not train a five-hour mean. Outside usage can overestimate cost; admitted jobs that consume no usage can underestimate it. Delayed reporting and overlapping jobs also introduce error: this is not exact accounting or a guarantee of completion.
-
-When included usage is blocked, a job is admitted through `quotaPath: "credits"` only if app-server reports credits or unlimited usage and no individual/workspace spend control is exhausted. Such results are always `caution` and explicitly warn that credits may be consumed. Credit capability is evaluated independently for each reported role.
-
-This runtime-first design follows the official OpenAI guidance that Codex usage varies by plan, model, task complexity, context, tools, and execution surface; eligible credits can extend usage, while flexible Enterprise/Edu plans may not use fixed rate limits. See [ChatGPT pricing](https://learn.chatgpt.com/docs/pricing), [Using Codex with your ChatGPT plan](https://help.openai.com/en/articles/11369540-using-), and [Luna Reserve in Codex](https://help.openai.com/en/articles/20001499-luna-reserve-in-codex-and-chatgpt-work).
-
-## Adaptive refresh policy
-
-| Five-hour quota remaining | Shared TTL | Observation behavior |
-| --- | ---: | --- |
-| 51-100% | 15 minutes | Normal work |
-| 21-50% | 5 minutes | Increased observation |
-| 11-20% | 2 minutes | Profile-aware admission |
-| 1-10% | 60 seconds | Profile-aware admission or credit bypass |
-| 0% | Until reset + 30 seconds | Credit bypass or checkpoint/defer |
-
-TTL is the minimum across detected role allowances, bounded by reported reset boundaries. A usable secondary role or credit path keeps refresh possible while primary waits. All roles, including credits, refuse new admissions on stale data. All tasks using the same Codex home/state database share the cache, lease, and backoff; expired leases recover after a crashed process. Normal refresh is caller-driven. With the managed monitor available and an attached pending defer, a shared timer checks quota at most once per five minutes (backoff may delay it).
-
-## Token-free early recovery monitor
-
-Multiple MCP instances are allowed; SQLite selects one quota-monitor owner and stores its next check deadline before I/O. No model turn is created to inspect quota. When fresh quota admits the deferred role, the monitor advances only its attached heartbeat. Changing to another signed-in account with sufficient quota also counts as recovery; its own thresholds and samples apply. Logout, unknown identity, stale data or insufficient quota do not authorize a wake.
-
-See [monitor setup and limitations](docs/MONITOR.md). This optional feature requires an installed trusted desktop scheduler server path plus the actual desktop-provided capability inherited by the MCP process. It is not enabled merely by cloning the repository. `quota_status.monitor` reports configuration availability, pending records and polling diagnostics. Without capability, original scheduled wakes remain unchanged.
-
-In direct stdio mode, monitoring stops when all Guard MCP processes exit. In managed
-Windows mode, the shared core stays alive only while attached recovery work exists;
-otherwise it exits after five idle minutes and is restarted by the next MCP request.
-The per-user probe does not invoke a model. Monitoring does not run while the user
-is logged out or the computer sleeps, and earlier scheduler delivery remains
-best-effort rather than an exact two-minute guarantee.
-
-## Managed shared core (v0.5)
-
-The recommended Windows/WSL [managed shared core](docs/MANAGED_CORE.md) shares one
-quota service/store/monitor behind authenticated loopback HTTP. Per-task stdio
-processes are bounded wire adapters only. Managed registration launches `node.exe`
-directly—never `cmd.exe` or a console shell. The least-privilege per-user supervisor
-uses `wscript.exe //B` only as a hidden local launcher; it has no password, elevation,
-network share, or model permission. Its five-minute/logon probe starts the core only
-when an attached active defer needs monitoring. Otherwise the core exits after five
-idle minutes and the next MCP request transparently restarts it. There is no fallback
-that opens a full Guard process for each task.
-
-## Configuration
-
-Defaults require no configuration. To customize plan baselines, learning, a shorter automation ceiling (maximum 24 hours), refresh behavior, or the managed-core idle delay (`managedIdleMs`, default five minutes), set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON file conforming to [`examples/config.schema.json`](examples/config.schema.json). `CODEX_QUOTA_GUARD_STATE_DIR` selects the state directory unless `stateDir` is explicitly configured.
-
-Default state locations:
-
-- Windows direct stdio: `%LOCALAPPDATA%\codex-quota-guard\state.sqlite`
-- Linux/macOS: `$XDG_STATE_HOME/codex-quota-guard/state.sqlite`, falling back to `~/.local/state/...`
-
-The Windows managed installer deliberately relocates its singleton state to the
-private `quota-guard/managed-<home-key>` directory under the canonical Codex home,
-where an external least-privilege Scheduled Task sees the same non-virtualized path.
-
-Run a live diagnostic (normal cache/lease writes; no admissions or automations):
-
-```powershell
-node dist/main.js --doctor
+```text
+npm run check
+npm run acceptance:install
+npm run acceptance:shared
+npm audit
+npm pack --dry-run
 ```
 
-## Documentation
+CI runs the full check, disposable installer acceptance, six-concurrent-connector singleton acceptance, and package dry run on Node 22/24 for Windows x64/ARM64, Ubuntu x64/ARM64, and macOS Intel/Apple Silicon.
 
-- [Getting started for humans and AI agents](docs/GETTING_STARTED.md)
-- [Managed Windows/WSL deployment](docs/MANAGED_CORE.md)
-- [Windows/WSL installation, mode switching, and acceptance](docs/WINDOWS_AND_WSL.md)
-- [MCP API reference](docs/MCP_API.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Cache policy](docs/CACHE_POLICY.md)
-- [Checkpoint and resume](docs/CHECKPOINT_AND_RESUME.md)
-- [Security](docs/SECURITY.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Five-minute monitor setup, lifecycle and limitations](docs/MONITOR.md)
+Release acceptance is recorded by guest OS. A Windows VM is simply a Windows acceptance result; there are no hypervisor-specific branches.
 
-## Development
-
-```powershell
-npm run typecheck
-npm run lint
-npm test
-npm run build
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). This project is licensed under the [MIT License](LICENSE).
+See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md), [monitor behavior](docs/MONITOR.md), [Windows and WSL](docs/WINDOWS_AND_WSL.md), [MCP API](docs/MCP_API.md), and [troubleshooting](docs/TROUBLESHOOTING.md).

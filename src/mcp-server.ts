@@ -1,5 +1,4 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { isAbsolute } from "node:path";
 import * as z from "zod/v4";
 import type { QuotaGuardService } from "./service.js";
@@ -47,15 +46,15 @@ function failure(error: unknown) {
 }
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
-  const server = new McpServer({ name: "codex-quota-guard-mcp", version: "0.5.1" });
+  const server = new McpServer({ name: "codex-quota-guard-mcp", version: "0.6.0" });
 
   server.registerTool("quota_status", {
-    description: "Read the shared adaptive Codex quota, detected plan profile, learned part-job cost, and runtime allowance capability. Callers cannot force refresh.",
+    description: "Read shared Codex quota near the start of long work. Callers cannot force refresh; do not call before every command or small file read.",
     inputSchema: {},
   }, async () => { try { return result({ ...await service.quotaStatus(), monitor: service.monitorStatus() }); } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
-    description: "Call exactly once with a stable jobId before a costly boundary. Any non-defer result records one passive part-job admission. Use primary for the main task; use secondary only when quota_status reports an explicit secondary lane.",
+    description: "Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Use primary for main work; secondary only when quota_status reports it.",
     inputSchema: {
       jobId: z.string().min(1).max(256).describe("Stable idempotency identifier for this part-job."),
       taskId, workspaceRoot, jobClass: z.enum(["small", "medium", "long"]),
@@ -120,11 +119,5 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
     } catch (error) { return failure(error); }
   });
 
-  return server;
-}
-
-export async function runStdioServer(service: QuotaGuardService): Promise<McpServer> {
-  const server = createMcpServer(service);
-  await server.connect(new StdioServerTransport());
   return server;
 }

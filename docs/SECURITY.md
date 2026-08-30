@@ -1,37 +1,11 @@
 # Security
 
-## Credential boundary
+The trust boundary is the user's existing Codex ChatGPT session. Quota Guard never reads `auth.json` or equivalent login files, never accepts credentials, never starts login/OAuth, and never stores tokens or cookies.
 
-The quota guard never opens Codex `auth.json`, browser stores, cookies, keyrings, or OAuth endpoints. The installed official app-server owns authentication and refresh. Child environment inheritance includes the selected `CODEX_HOME` only so app-server uses the intended profile.
+Before rate-limit IO, the app-server result must contain `account.type === "chatgpt"` and a stable non-empty identity. API-key, Bedrock, other providers, logout, and identity changes return `CHATGPT_LOGIN_REQUIRED` or `ACCOUNT_CHANGED_DURING_READ`. The old quota cache is deleted from admission state, so no bucket or percentage can authorize work after rejection.
 
-## Persistence
+Runtime settings contain only local paths, port, installation ID, and a random bearer. POSIX directories are `0700` and files `0600`. Windows applies a current-user-only DACL through non-elevated PowerShell 7. The bearer is not placed in command-line arguments or general documentation output.
 
-- No full model conversations, model responses, API keys, OAuth tokens, or browser data are intentionally stored. The optional scheduler outbox stores the exact owned automation definition (including its bounded guard resume prompt) to detect user edits; do not put secrets in automation fields.
-- Account email is hashed before persistence.
-- Checkpoint fields are length-bounded and redacted for common secret patterns.
-- Runtime SQLite files live outside the repository and are excluded by `.gitignore`.
+HTTP is loopback-only and rejects weak tokens, hostile Host/Origin values, query paths, unsupported content types, oversized bodies and excess concurrency. Install and uninstall preserve unrelated Codex configuration; purge accepts only a resolved Guard-owned v0.6 state path.
 
-## Process and network behavior
-
-The direct stdio MCP server opens no listening socket and sends no telemetry. It
-communicates over stdio with Codex and starts the installed Codex app-server only
-when shared cache policy permits refresh. Any upstream account request is made by
-the official app-server.
-
-The [managed shared core](MANAGED_CORE.md) opens a loopback-only listener with a
-required random local bearer secret, exact Host/Origin checks and bounded
-requests/connections/body size. The installer stores that secret in a private
-per-user directory and puts only the settings path in Codex configuration. The core
-accepts neither desktop capability values nor executable-path registration over
-HTTP. Its connector refuses redirects and does not retry unconfirmed mutations.
-
-The monitor launches an explicitly configured trusted OpenAI desktop MCP server. It
-forwards only the existing desktop capability in memory, never writes a pipe value to
-configuration, and never implements private IPC. It reads only exact attached
-automation records for ownership comparison; all scheduler mutations go through the
-shipped tool and retain its authorization checks. The server path is executable
-configuration and must not point to untrusted code.
-
-## Reporting vulnerabilities
-
-Do not include credentials, auth files, production checkpoints, or complete database files in an issue. Provide redacted doctor output, platform, Node/Codex versions, and reproduction steps.
+The tool requests no camera, microphone, browser, accessibility, administrator, service-control, network-change, process-inspection, or hypervisor permissions.

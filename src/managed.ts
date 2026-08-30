@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 export interface ManagedSettings {
-  revision: 1;
+  revision: 2;
   installationId: string;
   port: number;
   token: string;
@@ -21,7 +21,7 @@ export function readManagedSettings(path: string): ManagedSettings {
   if (process.platform !== "win32" && ((info.mode & 0o077) !== 0 || (directory.mode & 0o077) !== 0
     || info.uid !== process.getuid?.() || directory.uid !== process.getuid?.())) throw new Error("MANAGED_SETTINGS_NOT_PRIVATE");
   const value = JSON.parse(readFileSync(path, "utf8")) as ManagedSettings;
-  if (value.revision !== 1 || !/^[a-f0-9-]{36}$/.test(value.installationId)
+  if (value.revision !== 2 || !/^[a-f0-9-]{36}$/.test(value.installationId)
     || !Number.isInteger(value.port) || value.port < 1024 || value.port > 65535
     || !/^[a-zA-Z0-9_-]{43,256}$/.test(value.token)
     || ![value.nodeExecutable, value.coreEntrypoint, value.guardConfig].every(p => typeof p === "string" && isAbsolute(p))) {
@@ -82,8 +82,8 @@ export async function bindManagedDesktop(settings: ManagedSettings, taskId: stri
   return (await response.json() as { accepted?: boolean }).accepted === true;
 }
 
-export function managedFile(stateDir: string, key: string): string { return join(stateDir, `managed-${key}`, "runtime.json"); }
+export function managedFile(stateDir: string, key: string): string { return join(stateDir, `core-${key}`, "runtime.json"); }
 
-export function managedCoreCanStop(idleForMs: number, idleLimitMs: number, activeRequests: number, hasPendingRecovery: boolean): boolean {
-  return idleForMs >= idleLimitMs && activeRequests === 0 && !hasPendingRecovery;
+export function managedCoreCanStop(noClientForMs: number, shutdownGraceMs: number, activeRequests: number, schedulerDispatching: boolean): boolean {
+  return noClientForMs >= shutdownGraceMs && activeRequests === 0 && !schedulerDispatching;
 }

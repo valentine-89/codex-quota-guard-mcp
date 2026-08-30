@@ -147,6 +147,11 @@ export class StateStore {
     this.database.prepare("UPDATE quota_cache SET next_refresh_at_ms = 0 WHERE profile_key = ?").run(key);
   }
 
+  clearCache(key: string): void {
+    this.database.prepare("DELETE FROM quota_cache WHERE profile_key = ?").run(key);
+    this.database.prepare("DELETE FROM backoff_state WHERE profile_key = ?").run(key);
+  }
+
   capCacheDeadline(key: string, deadlineMs: number): void {
     this.database.prepare("UPDATE quota_cache SET next_refresh_at_ms=MIN(next_refresh_at_ms,?) WHERE profile_key=?")
       .run(deadlineMs, key);
