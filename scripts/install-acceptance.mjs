@@ -19,11 +19,19 @@ const env = { ...process.env, CODEX_HOME: home, CODEX_QUOTA_GUARD_CONFIG: "",
   CODEX_APP_TOOLS_PIPE_PATH: "", CODEX_THREAD_ID: "" };
 let settings;
 const clients = [];
+const runJson = (script, args = []) => {
+  try {
+    return JSON.parse(execFileSync(process.execPath, [resolve(script), ...args],
+      { env, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  } catch (error) {
+    if (error?.stdout) process.stderr.write(`installer stdout:\n${error.stdout}`);
+    if (error?.stderr) process.stderr.write(`installer stderr:\n${error.stderr}`);
+    throw error;
+  }
+};
 try {
-  const first = JSON.parse(execFileSync(process.execPath, [resolve("scripts/install.mjs")],
-    { env, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
-  const second = JSON.parse(execFileSync(process.execPath, [resolve("scripts/install.mjs")],
-    { env, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const first = runJson("scripts/install.mjs");
+  const second = runJson("scripts/install.mjs");
   assert.equal(first.settingsPath, second.settingsPath);
   const text = readFileSync(configPath, "utf8"), config = parse(text);
   assert.ok(text.includes("# preserved"));
@@ -48,8 +56,7 @@ try {
     await new Promise(done => setTimeout(done, 100));
   }
   assert.equal(await managedHealth(settings).catch(() => null), null);
-  const uninstall = JSON.parse(execFileSync(process.execPath, [resolve("scripts/uninstall.mjs"), "--purge"],
-    { env, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const uninstall = runJson("scripts/uninstall.mjs", ["--purge"]);
   assert.equal(uninstall.removed, true); assert.equal(uninstall.purged, true);
   const after = parse(readFileSync(configPath, "utf8"));
   assert.equal(after.mcp_servers.unrelated.command, "never-run");
