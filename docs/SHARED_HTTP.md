@@ -74,8 +74,7 @@ longer needed; zero defers means the monitor does not poll the quota backend.
    `bearer_token_env_var="CODEX_QUOTA_GUARD_HTTP_TOKEN"`. Ensure that variable is
    available to the **Codex client process**, not just a shell opened afterwards.
 5. For the stdio connector, set `CODEX_QUOTA_GUARD_HTTP_URL` to the same URL and
-   provide the same token. Run `node dist/http-connector.js`, or use
-   `scripts/connect-shared-windows.cmd` from Windows/WSL. The core must already run.
+   provide the same token. Run `node dist/http-connector.js` directly. The core must already run.
    The connector validates loopback URL, refuses redirects, preserves JSON-RPC
    fields, bounds concurrency/output backlog, and exits with its client.
 6. Confirm eight tools, fresh quota, `runtimeMode=shared-http` and the required lane.

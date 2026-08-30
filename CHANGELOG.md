@@ -4,6 +4,33 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-30
+
+### Fixed
+
+- Removed the `cmd.exe` wrapper from managed Codex registration. New Windows and
+  WSL-interoperable connections launch the wire adapter directly with `node.exe`.
+- Replaced the periodic interactive PowerShell action with a no-console
+  `wscript.exe //B` launcher. The task stays per-user and least privilege, requires
+  no password/elevation, and is explicitly hidden.
+- Scheduled checks start the managed core only for an attached active defer. With
+  no pending recovery, the shared core exits after five idle minutes and restarts
+  transparently on the next MCP request.
+- Managed state now lives in a private directory under the canonical Codex home.
+  This avoids desktop-package virtualization of LocalAppData, which made the same
+  path invisible to an external Scheduled Task. Upgrade performs a consistent
+  SQLite backup, retires the old settings endpoint, and preserves checkpoints.
+- Authenticated health probes no longer extend the core idle deadline. App-server,
+  scheduler and managed child processes continue to use no-window spawn options.
+
+### Acceptance boundary
+
+- Windows S4U task registration was rejected by the current host without extra
+  privilege, so the deployment deliberately retains a normal least-privilege user
+  task and guarantees no console through the built-in GUI-subsystem launcher.
+- Existing already-connected tasks keep their old connector process until Codex
+  closes those stdio connections; the new registration applies to new tasks.
+
 ## [0.5.0] - 2026-08-30
 
 ### Added

@@ -22,14 +22,15 @@ $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $definition = $service.NewTask(0)
 $definition.RegistrationInfo.Description = $marker
 $definition.Principal.UserId = $sid
-$definition.Principal.LogonType = 3 # Existing interactive user token; no password or elevation.
+$definition.Principal.LogonType = 3 # Same signed-in user, no password and no elevation.
 $definition.Principal.RunLevel = 0
 $definition.Settings.Enabled = $true
 $definition.Settings.StartWhenAvailable = $true
 $definition.Settings.DisallowStartIfOnBatteries = $false
 $definition.Settings.StopIfGoingOnBatteries = $false
 $definition.Settings.MultipleInstances = 2 # Ignore another health check while one is running.
-$definition.Settings.ExecutionTimeLimit = 'PT1M'
+$definition.Settings.ExecutionTimeLimit = 'PT30S'
+$definition.Settings.Hidden = $true
 $logon = $definition.Triggers.Create(9)
 $logon.UserId = $sid
 $daily = $definition.Triggers.Create(2)
@@ -38,11 +39,13 @@ $daily.DaysInterval = 1
 $daily.Repetition.Interval = 'PT5M'
 $daily.Repetition.Duration = 'P1D'
 $action = $definition.Actions.Create(0)
-$action.Path = (Get-Command pwsh.exe -ErrorAction Stop).Source
-foreach ($value in @($SettingsPath, $settings.nodeExecutable, $PSScriptRoot)) {
+$action.Path = Join-Path $env:SystemRoot 'System32\wscript.exe'
+$ensurePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\dist\managed-ensure.js'))
+$hiddenLauncher = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'run-hidden.vbs'))
+foreach ($value in @($SettingsPath, $settings.nodeExecutable, $ensurePath, $hiddenLauncher)) {
   if ($value.Contains('"') -or $value.Contains("`r") -or $value.Contains("`n")) { throw 'Unsafe action path' }
 }
-$action.Arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -File "' + (Join-Path $PSScriptRoot 'ensure-managed.ps1') + '" -SettingsPath "' + $SettingsPath + '" -NodePath "' + $settings.nodeExecutable + '"'
+$action.Arguments = '//B //Nologo "' + $hiddenLauncher + '" "' + $settings.nodeExecutable + '" "' + $ensurePath + '" "' + $SettingsPath + '"'
 $task = $folder.RegisterTaskDefinition($taskName, $definition, 6, $sid, $null, 3, $null)
 $null = $task.Run($null)
-[pscustomobject]@{installed=$true; taskName=$taskName; intervalMinutes=5; runLevel='leastPrivilege'; logonType='interactiveUser'} | ConvertTo-Json -Compress
+[pscustomobject]@{installed=$true; taskName=$taskName; intervalMinutes=5; runLevel='leastPrivilege'; logonType='interactiveUser'; hidden=$true; action='wscript'; consoleWindow=$false} | ConvertTo-Json -Compress

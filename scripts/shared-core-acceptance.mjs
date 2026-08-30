@@ -1,6 +1,6 @@
 // Bounded no-inference acceptance. Guard state is isolated; login state is never read/copied.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -98,7 +98,9 @@ if (process.argv.includes("--child")) {
     if (interop) {
       // Execute Windows Node from WSL: no LAN listener and no Linux/Windows SQLite mixing.
       command = "wsl.exe";
-      args = ["--exec", "/mnt/c/Windows/System32/cmd.exe", "/d", "/s", "/c", "call", resolve("scripts/connect-shared-windows.cmd")];
+      const windowsNode = registration.env?.CODEX_QUOTA_GUARD_NODE ?? process.execPath;
+      const wslNode = execFileSync("wsl.exe", ["--exec", "wslpath", "-u", windowsNode], { encoding: "utf8" }).trim();
+      args = ["--exec", wslNode, resolve("dist/http-connector.js")];
       const forwarded = ["CODEX_QUOTA_GUARD_HTTP_TOKEN", "CODEX_QUOTA_GUARD_HTTP_URL"];
       env.WSLENV = [...new Set([...(env.WSLENV ?? "").split(":").filter(Boolean).map(s => s.replace(/\/w$/, "")), ...forwarded])].join(":");
     }

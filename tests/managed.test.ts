@@ -7,9 +7,12 @@ import { join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { ensureManagedCore, managedHealth, readManagedSettings, type ManagedSettings } from "../src/managed.js";
+import { ensureManagedCore, managedCoreCanStop, managedHealth, readManagedSettings, type ManagedSettings } from "../src/managed.js";
+import { pendingManagedRecovery } from "../src/managed-supervision.js";
 import { RenewableSchedulerRpc } from "../src/scheduler.js";
 import { startHttpServer } from "../src/http-server.js";
+import { profileKey, StateStore } from "../src/store.js";
+import { testConfig } from "./helpers.js";
 
 async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "quota-managed-"));
@@ -40,6 +43,32 @@ test("managed settings validate private files, token and endpoints", async () =>
       assert.throws(() => readManagedSettings(f.path), /NOT_PRIVATE/);
     }
   } finally { await f.close(); }
+});
+
+test("managed core idle policy requires both inactivity and no recovery work", () => {
+  assert.equal(managedCoreCanStop(300_000, 300_000, 0, false), true);
+  assert.equal(managedCoreCanStop(299_999, 300_000, 0, false), false);
+  assert.equal(managedCoreCanStop(300_000, 300_000, 1, false), false);
+  assert.equal(managedCoreCanStop(300_000, 300_000, 0, true), false);
+});
+
+test("scheduled supervision recognizes only an attached active recovery", async () => {
+  const f = await fixture();
+  const config = testConfig(join(f.directory, "state.sqlite"));
+  config.codexHome = f.directory;
+  writeFileSync(f.settings.guardConfig, JSON.stringify({ stateDir: f.directory, codexHome: f.directory, monitorEnabled: true }));
+  const store = new StateStore(config.stateFile);
+  try {
+    assert.equal(await pendingManagedRecovery(f.path), false);
+    const key = profileKey(config.codexHome), now = Date.now();
+    const checkpoint = store.createCheckpoint(key, { workspaceRoot: f.directory, taskId: "task", objective: "wait",
+      completed: [], pending: [] }, now + 60_000, now);
+    const defer = store.createDefer(key, checkpoint, "task", now + 60_000, now);
+    store.monitor.enroll(key, defer.id, { fingerprint: "fingerprint", planType: "plus", limitId: "codex" }, now);
+    assert.equal(await pendingManagedRecovery(f.path), false);
+    store.attachAutomation(key, defer.id, "owned", now);
+    assert.equal(await pendingManagedRecovery(f.path), true);
+  } finally { store.close(); await f.close(); }
 });
 
 test("six bootstrap contenders elect one shared core, survive disconnect and recover after crash", { timeout: 30_000 }, async () => {

@@ -3,7 +3,7 @@
 ## WSL connector exits with `Exec format error`
 
 The managed Windows-hosted route requires WSL interoperability. First test the host,
-not Guard: `/mnt/c/Windows/System32/cmd.exe /d /c exit 0`. If that fails and
+not Guard: `node.exe --version`. If that fails and
 `/proc/sys/fs/binfmt_misc/WSLInterop` is absent, the distro currently cannot start
 any Windows executable; Guard cannot repair this in-process. Do not copy credentials,
 start a native Linux core against Windows state, or silently fall back to a full
@@ -75,6 +75,29 @@ Call `quota_profile` with `action: "get"` and inspect baseline, rolling mean, sa
 Check `quota_status.monitor` on a fresh connection and follow [monitor setup](MONITOR.md). `pendingRecords=0` means no enrolled attached defer is being observed; a legacy heartbeat existing in the desktop UI is not enough. `available=true` only confirms configured path/capability presence, not a completed scheduler mutation. Preserve the original wake when the bridge cannot be used.
 
 After stopping an incompatible old MCP, the current task may report `Transport closed` rather than reconnect automatically. Open a fresh MCP connection/task or reload using available app controls. Do not repeatedly call the dead transport or kill Codex itself. Windows/WSL must launch the same updated guard and use the intended state/home; do not mix old binaries with schema3.
+
+## A console window flashes at logon, Codex startup, or every five minutes
+
+Upgrade and rerun `node scripts/install-managed.mjs`. A v0.5.1 managed registration
+uses `node.exe` directly instead of `cmd.exe`. Its Scheduled Task action must be
+`wscript.exe //B //Nologo`, `RunLevel=LeastPrivilege`, `Hidden=true`, and must not
+invoke PowerShell. Existing tasks opened before the upgrade retain their old stdio
+connector until Codex closes them; a migrated v0.5 endpoint fails closed so it cannot
+recreate the retired core. Do not kill active Codex-owned pipes merely by age.
+
+If the task returns `1` and its managed settings are under LocalAppData, the desktop
+may be showing a package-virtualized path that the external scheduler cannot see.
+Rerun the v0.5.1 installer; it moves managed state to a private directory under the
+canonical Codex home and migrates SQLite using a consistent backup. Do not weaken the
+ACL or grant administrator/batch-logon rights as a workaround.
+
+The five-minute launcher only performs a bounded local health/SQLite check. It
+starts the core only for an attached active defer. With no pending recovery the
+core self-stops after five idle minutes. A configured `codexCommand` ending in
+`.cmd` may still create a **hidden** internal process during an actual quota refresh;
+the adapter always passes `windowsHide=true`. Set `codexCommand` to a verified native
+Codex executable if process policy forbids even a hidden command shim. Never replace
+it with an unverified executable or request elevation.
 
 ## Node SQLite warning
 

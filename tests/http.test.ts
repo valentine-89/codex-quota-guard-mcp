@@ -95,6 +95,19 @@ test("HTTP refuses an empty or weak token before binding", async () => {
   await assert.rejects(startHttpServer(() => { throw Error("unused"); }, { token: "weak" }), /HTTP_TOKEN_REQUIRED/);
 });
 
+test("authenticated health checks do not extend core activity", async () => {
+  let now = 1_000;
+  const token = randomBytes(32).toString("base64url");
+  const http = await startHttpServer(() => { throw Error("unused"); }, { token, now: () => now });
+  const headers = { Authorization: `Bearer ${token}` };
+  try {
+    assert.equal(http.diagnostics().lastActivityAtMs, 1_000);
+    now = 9_000;
+    assert.equal((await fetch(http.url.replace("/mcp", "/health"), { headers })).status, 200);
+    assert.equal(http.diagnostics().lastActivityAtMs, 1_000);
+  } finally { await http.close(); }
+});
+
 test("disconnected in-flight work retains its concurrency slot; overload does not start another job", { timeout: 10_000 }, async () => {
   let release!: () => void, entered!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });

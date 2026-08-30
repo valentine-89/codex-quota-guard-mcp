@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { profileKey } from "./store.js";
 import { acquireCoreLock } from "./core-lock.js";
-import { readManagedSettings } from "./managed.js";
+import { managedCoreCanStop, readManagedSettings } from "./managed.js";
 
 async function main() {
   const token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
@@ -32,15 +32,25 @@ async function main() {
     // Server lifetime is independent of initialize/EOF/client disconnect.
     runtime.monitor.start();
     let stopping = false;
+    let idleTimer: NodeJS.Timeout | undefined;
     const stop = () => {
       if (stopping) return;
       stopping = true;
+      if (idleTimer) clearInterval(idleTimer);
       const deadline = setTimeout(() => process.exit(1), 5_000);
       void http.close().then(() => runtime.close()).then(() => {
         release(); clearTimeout(deadline); process.exit(0);
       }).catch(() => { process.exit(1); });
     };
     process.once("SIGINT", stop); process.once("SIGTERM", stop);
+    if (managed) {
+      idleTimer = setInterval(() => {
+        const state = http.diagnostics();
+        if (managedCoreCanStop(Date.now() - state.lastActivityAtMs, config.managedIdleMs,
+          state.activeRequests, runtime.service.hasPendingRecovery())) stop();
+      }, Math.min(30_000, config.managedIdleMs));
+      idleTimer.unref();
+    }
     // No secret, capability, account data, or checkpoint contents in startup logs.
     process.stderr.write(`quota-guard: shared HTTP core ready on port ${port}\n`);
   } catch (error) { await closeHttp?.(); await runtime.close(); release(); throw error; }

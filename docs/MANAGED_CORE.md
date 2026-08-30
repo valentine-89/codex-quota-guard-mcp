@@ -18,11 +18,14 @@ After an explicit migration decision, run:
 node scripts/install-managed.mjs
 ```
 
-The installer provisions a private `managed-<home-key>` directory inside the guard
-state directory. Windows ACLs allow only the installing user; native POSIX
+The installer provisions a private `quota-guard/managed-<home-key>` directory under
+the canonical Codex home. Windows ACLs allow only the installing user; native POSIX
 provisioning requires user ownership and modes0700/0600. `runtime.json` contains
 an independent random local bearer secret and trusted executable/config paths.
-It is not an OpenAI credential. Never print, commit or send this file.
+It is not an OpenAI credential. Never print, commit or send this file. The managed
+SQLite database is kept in the same private directory so both the Codex process and
+the external per-user supervisor see one physical path. LocalAppData is not used for
+managed state because packaged desktop processes can virtualize that directory.
 
 The port is allocated by the OS once and persisted. This avoids Windows/Hyper-V
 reserved-port ranges. Later conflicts fail closed; the guard does not kill the
@@ -35,27 +38,42 @@ configuration is preserved and checked. Unsupported TOML layouts or concurrent
 edits cause registration to remain unchanged. A failure can leave a provisioned
 core/supervisor: inspect the installation, do not assume rollback occurred.
 
-The registered command becomes `connect-shared-windows.cmd`, with a60-second
-startup deadline and only a managed-settings **path** in config. The desktop pipe
-and task ID are inherited through `env_vars`, never saved as values. WSL callers
-run the same Windows Node connector through `cmd.exe`; `/w` forwarding retains
-Windows paths and the same home/state. No native WSL listener or second database.
+The registered command is `node.exe` with `dist/http-connector.js`, with a60-second
+startup deadline and only a managed-settings **path** in config. It does not launch
+`cmd.exe`, PowerShell, or another console shell. The desktop pipe and task ID are
+inherited through `env_vars`, never saved as values. Normal WSL executable interop
+resolves the same Windows `node.exe`; `/w` forwarding retains Windows paths and the
+same home/state. No native WSL listener or second database.
 
 Existing connected stdio sessions are not killed. New connections use the shared
 core. There is no automatic full-guard fallback. One wire-only Node connector per
 stdio connection remains; only the service/store/monitor is singleton. Deliberately
 using different state directories creates separate installations.
 
+Upgrading an older managed installation retires its old settings endpoint, stops
+only the core PID authenticated by that endpoint, removes only its ownership-marked
+supervisor, and copies SQLite with the native online-backup API into the new private
+location. Existing guard policy/scheduler configuration is carried forward with
+the canonical home and new state path. This preserves cache/checkpoints/defer data
+without copying credentials.
+Already-connected old wire adapters then fail closed instead of recreating the
+retired core; open a fresh Codex task after upgrade.
+
 ## Recovery and scheduler capability
 
 - Connectors start a missing core; an exclusive OS-released SQLite lock elects one
   winner from concurrent startup attempts before loading the full runtime.
-- The Windows task `CodexQuotaGuard-<installation-id>` performs a local health/start
-  check at user logon and every5 minutes while logged in. It uses the existing
-  interactive user token, least privilege and a hidden window, with no password,
-  elevation, or model call. It does not run while Windows is logged out or asleep.
-- Health requests do not read quota. The existing monitor separately observes
-  pending owned defers at its shared five-minute deadline/lease/backoff.
+- The Windows task `CodexQuotaGuard-<installation-id>` performs a bounded local
+  check at user logon and every5 minutes while logged in. It uses the existing user
+  token at lowest run level, with no password or elevation. Its action is the Windows
+  GUI-subsystem `wscript.exe //B`, which launches the fixed Node probe with window
+  style0; no console process or interactive prompt is created.
+- The scheduled probe starts a missing core only when SQLite contains an attached,
+  active quota-guard defer. With no such recovery work it exits immediately. Health
+  requests do not read quota and do not extend the core idle deadline.
+- When no authenticated request or pending recovery exists, the managed core exits
+  after `managedIdleMs` (default5 minutes). The next wire request restarts it. An
+  attached defer prevents idle shutdown so token-free monitoring can continue.
 - A newly connected desktop connector forwards its already-inherited capability
   through authenticated `/desktop-session` (4KiB maximum), in memory only. The core
   accepts no executable/server path from HTTP.
@@ -84,7 +102,8 @@ config over later user edits.
 ## Evidence and remaining acceptance
 
 Initial managed acceptance on2026-08-30 passed82 tests; v0.5 weekly-only coverage
-raised the Windows and isolated native WSL suite to91 passing tests. Managed tests
+raised the Windows and isolated native WSL suite to91 passing tests. v0.5.1 adds
+no-console registration, idle-stop and recovery-only supervisor regressions. Managed tests
 coverage proves six concurrent bootstrap requests, crash/lock recovery, wrong
 listener rejection, private settings validation, bounded authenticated binding,
 and serialized capability replacement using fixtures. Windows provisioning applied
@@ -108,3 +127,20 @@ One later repeat found the distro's own `WSLInterop` binfmt entry absent, so eve
 plain Windows `cmd.exe` could not start; the distro was not forcibly restarted. See
 [troubleshooting](TROUBLESHOOTING.md) and keep this host failure distinct from the
 earlier successful v0.5 Windows-hosted WSL connection and final native-Linux tests.
+
+On the current host, registering an S4U task without additional user rights returned
+`E_ACCESSDENIED`. The installer does not request elevation or grant batch-logon rights.
+It instead uses the ordinary least-privilege user token with the built-in no-console
+launcher described above. This is a deliberate privilege boundary, not a hidden
+administrative service.
+
+v0.5.1 production acceptance migrated the prior virtualized LocalAppData database,
+retired its old endpoint, and left exactly one ownership-marked supervisor. Its real
+run reported `LastTaskResult=0`, `RunLevel=0`, `Hidden=true`, action `wscript.exe`,
+and no cmd/PowerShell argument. After the authenticated core PID was stopped with
+`pendingRecords=0`, a supervisor run returned0 and left health absent; a fresh MCP
+request then restarted one v0.5.1 core and returned the same weekly-only profile.
+Two older already-connected `cmd.exe` wire wrappers remained owned by existing Codex
+tasks and were not killed. Their creation times predated deployment; new registration
+contains no shell wrapper. A repeat Windows-hosted WSL smoke remained blocked by the
+distro's missing `WSLInterop` (`Exec format error`); no WSL restart was forced.

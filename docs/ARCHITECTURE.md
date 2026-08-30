@@ -9,6 +9,8 @@
 - `createRuntime` owns the shared service/store/monitor construction. Managed
   `http-main` holds a separate exclusive ownership lock, starts the monitor without
   client initialization and uses `http-server` request-scoped protocol resources.
+  Authenticated non-health requests update its activity clock; it exits after the
+  configured idle delay only when there are no active requests or pending recoveries.
   `http-connector` is a wire adapter with no SQLite or policy instances. See
   [managed ownership and recovery](MANAGED_CORE.md).
 - `ProcessLifetime` owns stream/transport shutdown, a local parent-existence check,

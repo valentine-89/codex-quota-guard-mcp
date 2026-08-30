@@ -43,39 +43,33 @@ otherwise the Windows user's `.codex`). The official CLI must be signed in to
 ChatGPT there. Prefer an installed CLI path that survives app updates; if using a
 versioned bundled executable, reverify its path after desktop upgrades.
 
-Merge this entry into the **actual config loaded by Codex**, replacing all paths
-with verified ones. Do not overwrite unrelated entries or assume a WSL-backed
-desktop reads the same config as a standalone WSL CLI.
+Run `node scripts/install-managed.mjs` from Windows after the build. It preserves
+unrelated configuration and writes an entry shaped like this; paths are examples,
+and the protected settings path is generated per installation:
 
 ```toml
 [mcp_servers.codex_quota_guard]
-command = 'cmd.exe'
-args = ['/d', '/s', '/c', 'call', 'D:\tools\codex-quota-guard-mcp\scripts\start-windows.cmd']
-startup_timeout_sec = 30
+command = 'node.exe'
+args = ['D:\tools\codex-quota-guard-mcp\dist\http-connector.js']
+startup_timeout_sec = 60
+env_vars = ['CODEX_APP_TOOLS_PIPE_PATH', 'CODEX_MCP_NODE_PATH', 'CODEX_THREAD_ID']
 
 [mcp_servers.codex_quota_guard.env]
-CODEX_QUOTA_GUARD_NODE = 'C:\Program Files\nodejs\node.exe'
 CODEX_HOME = 'C:\Users\YOUR_USER\.codex'
-CODEX_CLI_PATH = 'C:\Users\YOUR_USER\AppData\Roaming\npm\codex.cmd'
-WSLENV = 'CODEX_QUOTA_GUARD_NODE/w:CODEX_HOME/w:CODEX_CLI_PATH/w:CODEX_QUOTA_GUARD_CONFIG/w:CODEX_QUOTA_GUARD_STATE_DIR/w'
+CODEX_QUOTA_GUARD_NODE = 'C:\Program Files\nodejs\node.exe'
+CODEX_QUOTA_GUARD_MANAGED_SETTINGS = 'C:\Users\YOUR_USER\.codex\quota-guard\managed-KEY\runtime.json'
+WSLENV = 'CODEX_APP_TOOLS_PIPE_PATH/w:CODEX_MCP_NODE_PATH/w:CODEX_THREAD_ID/w:CODEX_QUOTA_GUARD_MANAGED_SETTINGS/w:CODEX_QUOTA_GUARD_NODE/w:CODEX_HOME/w'
 ```
 
-`WSLENV` forwards these explicitly selected Windows values when a WSL process
-starts `cmd.exe`; `/w` means Linux-to-Windows, and absence of `/p` keeps Windows
-paths unchanged. Merge any already-required `WSLENV` entries rather than dropping
-them. This is scoped to the MCP child; do not change the global user environment.
-Optional guard JSON/config/state paths must also be Windows paths. No `WSLENV`
-setting is needed for native Windows execution, but this entry is harmless there.
+`node.exe` is launched directly, so Codex does not create a `cmd.exe` or PowerShell
+console wrapper. `WSLENV` forwards explicitly selected Windows values when WSL
+starts that executable; `/w` means Linux-to-Windows and absence of `/p` keeps
+Windows paths unchanged. The installer merges existing entries process-locally.
 
-The launcher uses the configured Windows Node, or `node.exe` on the Windows PATH
-if omitted. It forwards stdio and exit status, emits no banners on stdout, and
-does not create a background service. It never selects a different login.
-
-In WSL, verify `command -v cmd.exe` and Windows executable interoperability. If
-your MCP launch environment omits the Windows PATH, use the verified absolute
-mounted `cmd.exe` path in that WSL registration (commonly
-`/mnt/c/Windows/System32/cmd.exe`); do not guess mount points. Disabled interop
-prevents the Windows-hosted mode. Do not silently change system settings to fix it.
+In WSL, verify `command -v node.exe` and Windows executable interoperability. If
+Windows executables are absent from that environment, the Windows-hosted mode is
+unavailable; do not silently change WSL/system settings. Use the separate Linux-native
+route or restore interop with explicit user authorization.
 
 ### Workspace identity
 
@@ -99,17 +93,17 @@ work merely to test a mode switch.
 
 ### Verify both callers
 
-From Windows, test the launcher itself:
+From Windows, test the actual registered entry:
 
 ```powershell
-& .\scripts\start-windows.cmd --doctor
-node scripts/live-acceptance.mjs --summary --command cmd.exe --args-json '["/d","/s","/c","call","D:\\tools\\codex-quota-guard-mcp\\scripts\\start-windows.cmd"]'
+node scripts/registered-smoke.mjs
 ```
 
-From WSL, test the same Windows process:
+From Windows, ask the acceptance harness to test the same registered Windows
+connector through WSL interop:
 
 ```bash
-cmd.exe /d /s /c call 'D:\tools\codex-quota-guard-mcp\scripts\start-windows.cmd' --doctor
+node scripts/registered-smoke.mjs --wsl
 ```
 
 Use the same explicit environment as the MCP entry when running these commands;
@@ -118,12 +112,9 @@ fresh WSL-backed Codex task, verify all eight tools and call `quota_status`.
 Expect `stale=false`, `refreshInProgress=false`, the correct plan and both role
 entries. A fresh shared cache is valid evidence; do not force extra refreshes.
 
-`scripts/live-acceptance.mjs` can also run from a Linux checkout with Linux Node
-and use `--command /mnt/c/Windows/System32/cmd.exe` plus the same args JSON to
-verify the cross-OS MCP protocol. Do **not** use `--isolated` on a Linux caller
-launching a Windows server: that option creates host-local paths. If isolation
-is needed, run acceptance from Windows so its temporary config/state are Windows
-paths. This restriction is checked before starting the server for `.exe` commands.
+Do **not** use `--isolated` on a Linux caller launching a Windows server: that
+option creates host-local paths. If isolation is needed, run acceptance from
+Windows so temporary config/state paths remain Windows paths.
 
 ## Linux-native WSL installation
 
@@ -180,18 +171,18 @@ on Windows. A WSL caller can also reach that shipped desktop MCP by launching
 its **Windows** Node runtime through interop, matching the installed desktop's
 observed approach. Linux Node cannot directly use a Windows named pipe.
 
-Read-only diagnostic through the launcher:
+Read-only diagnostic through the Windows entrypoint:
 
 ```powershell
-& .\scripts\start-windows.cmd --scheduler-bridge-doctor 'C:\actual\installed\codex-app-tools\version\server.mjs'
+node dist/main.js --scheduler-bridge-doctor 'C:\actual\installed\codex-app-tools\version\server.mjs'
 ```
 
-For a WSL caller use `cmd.exe /d /s /c call` with that same launcher and arguments.
-It requires the real desktop-supplied `CODEX_APP_TOOLS_PIPE_PATH` to reach the
-Windows child. Forward only that existing capability using process-scoped
-`WSLENV` (no `/p` path translation); never synthesize, print, save, or scan for its
-value. A shell launched outside desktop may have no capability. Do not treat a
-successful quota read as proof of scheduler availability.
+For a WSL caller use the managed `node.exe` connector. It requires the real
+desktop-supplied `CODEX_APP_TOOLS_PIPE_PATH` to reach the Windows child. Forward
+only that existing capability using process-scoped `WSLENV` (no `/p` path
+translation); never synthesize, print, save, or scan for its value. A shell
+launched outside desktop may have no capability. Do not treat a successful quota
+read as proof of scheduler availability.
 
 The diagnostic only lists tools. It cannot start work or consume inference
 tokens. Version0.3 adds the optional [five-minute monitor](MONITOR.md), requiring

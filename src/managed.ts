@@ -83,3 +83,7 @@ export async function bindManagedDesktop(settings: ManagedSettings, taskId: stri
 }
 
 export function managedFile(stateDir: string, key: string): string { return join(stateDir, `managed-${key}`, "runtime.json"); }
+
+export function managedCoreCanStop(idleForMs: number, idleLimitMs: number, activeRequests: number, hasPendingRecovery: boolean): boolean {
+  return idleForMs >= idleLimitMs && activeRequests === 0 && !hasPendingRecovery;
+}

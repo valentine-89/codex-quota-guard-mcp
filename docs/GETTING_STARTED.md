@@ -110,7 +110,7 @@ State is local SQLite under `%LOCALAPPDATA%\codex-quota-guard\state.sqlite` on W
 
 ## Configuration
 
-Defaults work without a config file. To customize them, set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON path matching [`../examples/config.schema.json`](../examples/config.schema.json). `CODEX_QUOTA_GUARD_STATE_DIR` changes only the local state directory. Keep `sampleWindow`, `minSamples`, `safetyFactor`, `maxThreshold`, `weeklyOnlyRemainingPercent` (2–5), and `maxAutomationWaitMs` within the documented bounds.
+Defaults work without a config file. To customize them, set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON path matching [`../examples/config.schema.json`](../examples/config.schema.json). `CODEX_QUOTA_GUARD_STATE_DIR` changes only the local state directory. Keep `sampleWindow`, `minSamples`, `safetyFactor`, `maxThreshold`, `weeklyOnlyRemainingPercent` (2–5), `managedIdleMs` (1–60 minutes), and `maxAutomationWaitMs` within the documented bounds.
 
 Environment can be set on the same MCP entry:
 
@@ -129,7 +129,7 @@ Explicit JSON `stateDir`, `codexHome`, and `codexCommand` take precedence over t
 2. Stop only quota-guard processes when safe; do not kill the Codex app or unrelated tasks. Back up the SQLite state consistently: after all guard processes close, copy the database and any remaining `-wal`/`-shm` companions together, or use SQLite's online backup API. Never copy just the main file while a writer is active.
 3. Update the checkout to the intended release, then run `npm ci` and `npm run check`. Keep the registered absolute entrypoint unchanged when possible.
 4. Remove v0.1 percentage settings from the guard JSON and merge the v0.2 agent snippet. The MCP contract is intentionally breaking; SQLite migration is additive and preserves old checkpoints/cache. A v0.1 snapshot is revalidated before admission. Do not run old and new guard processes against the same state for ongoing work.
-5. Start a new task, verify the eight tools and `0.5.0` server version, then call `quota_status`. Use `npm run acceptance:live` for a protocol smoke without creating admissions or automations. Configure the optional [early-recovery monitor](MONITOR.md) separately; cloning/registering quota tools alone does not enable its scheduler capability. On Windows/WSL, the recommended [managed shared core](MANAGED_CORE.md) provides per-user startup recovery and capability renewal without a full-process fallback.
+5. Start a new task, verify the eight tools and `0.5.1` server version, then call `quota_status`. Use `npm run acceptance:live` for a protocol smoke without creating admissions or automations. Configure the optional [early-recovery monitor](MONITOR.md) separately; cloning/registering quota tools alone does not enable its scheduler capability. On Windows/WSL, the recommended [managed shared core](MANAGED_CORE.md) provides no-console, per-user recovery and capability renewal without a full-process fallback.
 
 For release acceptance, `npm run acceptance:live -- --isolated` uses a new temporary guard database while preserving the selected Codex login/profile. The script prints that directory and leaves it for inspection; do not publish its contents. Ordinary diagnostics should reuse shared state, not create isolated databases to bypass refresh limits. To smoke a registered command exactly, the script also accepts `--command <executable>` and `--args-json <JSON-string-array>` copied from the registration.
 

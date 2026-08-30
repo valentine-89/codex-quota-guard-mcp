@@ -14,6 +14,7 @@ export interface HttpServerOptions {
   requestTimeoutMs?: number;
   diagnostics?: () => object;
   bindDesktop?: (pipePath: string, taskId: string) => Promise<boolean>;
+  now?: () => number;
 }
 
 /** One shared backend, but request-scoped protocol objects: no unbounded session map. */
@@ -23,7 +24,8 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
   const maxRequests = options.maxConcurrentRequests ?? 32;
   const maxBody = options.maxBodyBytes ?? 1_048_576;
   const timeout = options.requestTimeoutMs ?? 60_000;
-  let active = 0, closing = false, port = 0;
+  const now = options.now ?? Date.now;
+  let active = 0, closing = false, port = 0, lastActivityAtMs = now();
   const sockets = new Set<Socket>();
   const work = new Set<Promise<void>>();
   const reply = (res: ServerResponse, status: number, body: object = {}) => {
@@ -50,6 +52,8 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); reply(res, 405); return; }
     if (active >= maxRequests) { res.setHeader("Retry-After", "1"); reply(res, 503); return; }
     if (!/^application\/json(?:\s*;|$)/i.test(req.headers["content-type"] ?? "")) { reply(res, 415); return; }
+    // Authenticated health probes do not keep an otherwise idle core alive.
+    lastActivityAtMs = now();
     const bodyLimit = desktopBinding ? Math.min(maxBody, 4096) : maxBody;
     if (Number(req.headers["content-length"] ?? 0) > bodyLimit) { reply(res, 413); return; }
     active++;
@@ -112,7 +116,7 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
   port = address.port;
   return {
     url: `http://127.0.0.1:${port}/mcp`,
-    diagnostics: () => ({ activeRequests: active, connections: sockets.size }),
+    diagnostics: () => ({ activeRequests: active, connections: sockets.size, lastActivityAtMs }),
     async close(): Promise<void> {
       closing = true;
       const closed = new Promise<void>(resolve => server.close(() => resolve()));

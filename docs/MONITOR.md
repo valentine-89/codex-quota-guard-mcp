@@ -42,7 +42,7 @@ Do not run older binaries against the migrated database. Update the installation
 
 ## Limits and diagnostics
 
-For direct stdio, the app, computer and at least one guard MCP connection must remain alive. Managed Windows/WSL keeps a single core alive through a per-user logon/five-minute health task; it needs no model turn and no live MCP client, but does not run while the user is logged out or the computer sleeps. App shutdown or revoked desktop capability prevents scheduler dispatch until a new connector supplies a verified capability. Five minutes is a check cadence, not guaranteed wake latency; backoff, sleep and scheduler delivery can extend it.
+For direct stdio, the app, computer and at least one guard MCP connection must remain alive. Managed Windows/WSL uses a no-console per-user logon/five-minute probe: it starts the core only when an attached active defer exists. The core remains alive for that recovery work without a model turn or live MCP client; with no pending recovery it exits after the configured idle delay. Neither path runs while the user is logged out or the computer sleeps. App shutdown or revoked desktop capability prevents scheduler dispatch until a new connector supplies a verified capability. Five minutes is a check cadence, not guaranteed wake latency; backoff, sleep and scheduler delivery can extend it.
 
 Version0.3.1 hardens process lifetime: input EOF/close/error, output close/error,
 transport closure or a detected missing parent triggers self-shutdown. Parent

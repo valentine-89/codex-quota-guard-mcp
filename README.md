@@ -50,7 +50,7 @@ npm ci
 npm run check
 ```
 
-The command is intentionally ordinary Node.js: no global package install and no credential copy is needed. An AI agent can follow this README from a repository link, run the four commands above, and register the absolute `dist/main.js` path below. `npm run check` includes typecheck, lint, tests, and a fresh build.
+The command is intentionally ordinary Node.js: no global package install and no credential copy is needed. An AI agent can follow this README from a repository link, run the four commands above, and register the absolute `dist/main.js` path below. `npm run check` includes typecheck, lint, tests, and a fresh build. On Windows/WSL, prefer the managed installer because it also installs the no-console recovery supervisor.
 
 Register the built entrypoint in `%USERPROFILE%\.codex\config.toml` on Windows:
 
@@ -161,22 +161,28 @@ reconnection and sleep/restart behavior remain unverified. See the
 
 ## Managed shared core (v0.5)
 
-The recommended Windows/WSL [managed shared core](docs/MANAGED_CORE.md) keeps one
-quota service/store/monitor alive behind authenticated loopback HTTP. Per-task stdio
-processes are bounded wire adapters only. A least-privilege per-user task checks local
-health at logon/every five minutes without a model call; connectors can also bootstrap
-a missing core and renew the desktop scheduler capability in memory. There is no
-fallback that opens a full Guard process for each task. Direct stdio remains available
-for simple cross-platform installations and is not forcibly closed during migration.
+The recommended Windows/WSL [managed shared core](docs/MANAGED_CORE.md) shares one
+quota service/store/monitor behind authenticated loopback HTTP. Per-task stdio
+processes are bounded wire adapters only. Managed registration launches `node.exe`
+directly—never `cmd.exe` or a console shell. The least-privilege per-user supervisor
+uses `wscript.exe //B` only as a hidden local launcher; it has no password, elevation,
+network share, or model permission. Its five-minute/logon probe starts the core only
+when an attached active defer needs monitoring. Otherwise the core exits after five
+idle minutes and the next MCP request transparently restarts it. There is no fallback
+that opens a full Guard process for each task.
 
 ## Configuration
 
-Defaults require no configuration. To customize plan baselines, learning, a shorter automation ceiling (maximum 24 hours), or refresh behavior, set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON file conforming to [`examples/config.schema.json`](examples/config.schema.json). v0.1 `warningRemainingPercent` and `deferRemainingPercent` are intentionally unsupported in v0.2. `CODEX_QUOTA_GUARD_STATE_DIR` selects the state directory unless `stateDir` is explicitly configured.
+Defaults require no configuration. To customize plan baselines, learning, a shorter automation ceiling (maximum 24 hours), refresh behavior, or the managed-core idle delay (`managedIdleMs`, default5 minutes), set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON file conforming to [`examples/config.schema.json`](examples/config.schema.json). v0.1 `warningRemainingPercent` and `deferRemainingPercent` are intentionally unsupported in v0.2. `CODEX_QUOTA_GUARD_STATE_DIR` selects the state directory unless `stateDir` is explicitly configured.
 
 Default state locations:
 
 - Windows: `%LOCALAPPDATA%\codex-quota-guard\state.sqlite`
 - Linux/macOS: `$XDG_STATE_HOME/codex-quota-guard/state.sqlite`, falling back to `~/.local/state/...`
+
+The Windows managed installer deliberately relocates its singleton state to the
+private `quota-guard/managed-<home-key>` directory under the canonical Codex home,
+where an external least-privilege Scheduled Task sees the same non-virtualized path.
 
 Run a live diagnostic (normal cache/lease writes; no admissions or automations):
 

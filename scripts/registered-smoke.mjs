@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { execFileSync } from "node:child_process";
 import { parse } from "smol-toml";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -15,9 +16,14 @@ const home = process.env.CODEX_HOME || join(homedir(), ".codex");
 const config = parse(readFileSync(join(home, "config.toml"), "utf8")).mcp_servers.codex_quota_guard;
 const env = { ...getDefaultEnvironment(), ...config.env };
 for (const name of config.env_vars ?? []) if (process.env[name]) env[name] = process.env[name];
-if (values.wsl) env.WSLENV = (env.WSLENV ?? "").split(":").map(x => x.replace(/\/w$/, "")).join(":");
+let wslNode;
+if (values.wsl) {
+  env.WSLENV = (env.WSLENV ?? "").split(":").map(x => x.replace(/\/w$/, "")).join(":");
+  assert.ok(config.env?.CODEX_QUOTA_GUARD_NODE, "Managed Windows Node path missing");
+  wslNode = execFileSync("wsl.exe", ["--exec", "wslpath", "-u", config.env.CODEX_QUOTA_GUARD_NODE], { encoding: "utf8" }).trim();
+}
 const transport = new StdioClientTransport({ command: values.wsl ? "wsl.exe" : config.command,
-  args: values.wsl ? ["--exec", "/mnt/c/Windows/System32/cmd.exe", ...config.args] : config.args, env, stderr: "pipe" });
+  args: values.wsl ? ["--exec", wslNode, ...config.args] : config.args, env, stderr: "pipe" });
 transport.stderr?.on("data", data => {
   if (process.env.QUOTA_SMOKE_DEBUG === "1") process.stderr.write(data);
 });

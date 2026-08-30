@@ -10,6 +10,7 @@
     "codexHome": { "type": "string", "minLength": 1 },
     "codexCommand": { "type": "string", "minLength": 1 },
     "monitorEnabled": { "type": "boolean", "default": true },
+    "managedIdleMs": { "type": "integer", "minimum": 60000, "maximum": 3600000, "default": 300000, "description": "Managed shared core idle shutdown delay when no authenticated request or pending recovery exists." },
     "schedulerServerPath": { "type": "string", "minLength": 1, "description": "Absolute path to the installed trusted OpenAI codex-app-tools server.mjs. Required with inherited desktop capability to enable monitoring." },
     "planDefaults": {
       "type": "object",

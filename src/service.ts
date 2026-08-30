@@ -57,6 +57,8 @@ export class QuotaGuardService {
       requiresLiveClientConnection: this.runtimeMode === "stdio", runtimeMode: this.runtimeMode };
   }
 
+  hasPendingRecovery(): boolean { return this.store.monitor.list(this.key).length > 0; }
+
   constructor(
     private readonly config: GuardConfig,
     private readonly store: StateStore,
