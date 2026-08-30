@@ -47,7 +47,7 @@ function failure(error: unknown) {
 }
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
-  const server = new McpServer({ name: "codex-quota-guard-mcp", version: "0.3.0" });
+  const server = new McpServer({ name: "codex-quota-guard-mcp", version: "0.3.1" });
 
   server.registerTool("quota_status", {
     description: "Read the shared adaptive Codex quota, detected plan profile, learned part-job cost, and runtime allowance capability. Callers cannot force refresh.",

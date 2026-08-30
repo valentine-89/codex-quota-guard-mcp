@@ -44,9 +44,32 @@ Do not run older binaries against the migrated database. Update the installation
 
 The app, computer and at least one guard MCP connection must remain alive. Sleep, app shutdown, closed stdio or revoked desktop capability stops monitoring. No standalone service is installed. Five minutes is a check cadence, not a guaranteed wake latency; backoff, sleep and scheduler delivery can extend it.
 
+Version0.3.1 hardens process lifetime: input EOF/close/error, output close/error,
+transport closure or a detected missing parent triggers self-shutdown. Parent
+checks run locally every10 seconds, without quota reads or model usage. Connections
+that never finish MCP initialization expire after60 seconds. Cleanup gets at most
+5 seconds before this MCP exits; it never scans for or kills other processes.
+Monitoring starts only after initialization. A healthy idle connection is not
+expired just because no tool calls arrive; it may be waiting for quota recovery.
+
+These guards do not impose a cap on valid simultaneous stdio sessions. The six
+older processes found during upgrade were not proven orphans: their age and count
+alone cannot establish whether Codex still owned live pipes. A shared HTTP server
+would be a different architecture, requiring explicit endpoint/lifecycle/security
+configuration. Instructions to the AI cannot multiplex independent stdio pipes.
+
 `quota_status.monitor` returns `available`, `intervalMs`, `pendingRecords`, `nextPollAt`, `lastPollAt`, `lastError`, and `requiresLiveMcpProcess`. A configured bridge with a scheduler error is not proof of delivery. The shipped desktop bridge is runtime-verified integration, not a documented stable third-party API; unsupported versions fail closed without a compatibility fallback.
 
 ## Acceptance — 2026-08-30
+
+Lifetime hardening follow-up (v0.3.1): full checks passed with70 tests on both
+Windows and WSL. Real subprocess tests cover startup EOF, initialized idle
+connection followed by disconnect, and broken response pipe. Unit tests cover
+parent loss and bounded initialization/shutdown. Registered-launcher smoke tests
+on Windows and WSL interop reported0.3.1 with monitor capability available.
+No global session cap or shared HTTP service was added.
+
+The initial v0.3.0 recovery acceptance was:
 
 - Windows Node24 and WSL Ubuntu22.04/Node24: full `npm run check`, 63 tests passed on each platform.
 - A real stdio MCP subprocess with isolated quota/scheduler fixtures advanced its attached heartbeat without any client quota-tool call. This proves internal timer dispatch, not delivery by the live desktop scheduler.

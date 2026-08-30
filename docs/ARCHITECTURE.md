@@ -6,6 +6,10 @@
 - `QuotaGuardService` applies cache, lease, backoff, plan profiles, passive learning, admission, and defer/resume policies.
 - `StateStore` owns additive v0.2 SQLite persistence for cache/checkpoints plus samples, account-plan overrides, idempotent admissions, and quota-owned defer records.
 - `mcp-server` exposes eight bounded stdio tools.
+- `ProcessLifetime` owns stream/transport shutdown, a local parent-existence check,
+  a60-second initialization deadline and a5-second shutdown ceiling. It terminates
+  only its own MCP instance, never evicts a healthy initialized idle session, and
+  starts the monitor only after initialization.
 - `QuotaMonitor` coordinates five-minute quota checks using durable SQLite lease generations; `DesktopSchedulerBridge` advances only exact attached heartbeats through the installed OpenAI MCP server. Local cleanup runs independently of quota reads. See [monitor lifecycle](MONITOR.md).
 
 ## Refresh sequence

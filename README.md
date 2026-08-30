@@ -135,6 +135,12 @@ See [monitor setup and limitations](docs/MONITOR.md). This optional feature requ
 
 Monitoring stops when all MCP processes exit, the app closes or the computer sleeps. No Windows service, Linux daemon or token-consuming polling heartbeat is installed. Earlier scheduler delivery is best-effort, not an exact two-minute guarantee.
 
+Version0.3.1 automatically exits disconnected/orphaned MCP instances, expires
+unfinished initialization after60 seconds and bounds shutdown cleanup to5 seconds.
+Healthy idle connections remain usable. This is connection cleanup, not a global
+process cap: multiple legitimate stdio sessions may coexist with one shared monitor
+owner. See [lifetime details](docs/MONITOR.md#limits-and-diagnostics).
+
 A controlled live account-switch test verified automatic advancement, actual task
 wake about78 minutes before its old resume boundary, quota revalidation and
 heartbeat cleanup. An SDK harness kept MCP alive for this test; automatic desktop

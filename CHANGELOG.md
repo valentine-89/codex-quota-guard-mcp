@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-30
+
+### Fixed
+
+- Exit on stdin EOF/close/error, stdout close/error, transport disconnect and detected
+  parent loss. Register stream listeners before connecting to avoid startup races.
+- Expire connections that never finish initialization after60 seconds; bound shutdown
+  cleanup to5 seconds. Start the monitor only after MCP initialization completes.
+- Preserve healthy idle sessions, including quota waits; no arbitrary idle eviction
+  or process-wide kill. Document that multiple stdio sessions are not evidence of
+  orphaned processes and that this cleanup does not cap legitimate concurrency.
+
 ### Documentation
 
 - Record the successful real early-recovery heartbeat after an account switch:

@@ -2,11 +2,13 @@
 
 import { CodexAppServerClient } from "./app-server.js";
 import { loadConfig } from "./config.js";
-import { runStdioServer } from "./mcp-server.js";
+import { createMcpServer } from "./mcp-server.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { QuotaGuardService } from "./service.js";
 import { StateStore } from "./store.js";
 import { QuotaMonitor } from "./monitor.js";
 import { DesktopSchedulerBridge, DesktopSchedulerRpc, schedulerConfigured } from "./scheduler.js";
+import { ProcessLifetime, parentIsAlive } from "./lifetime.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -31,18 +33,31 @@ async function main(): Promise<void> {
   const monitor = new QuotaMonitor(config.codexHome, store, service, bridge);
   service.setMonitorCapability(available);
   service.setAutomationCapture(defer => available() ? bridge.capture(defer)?.serialized ?? null : null);
-  const server = await runStdioServer(service);
-  let closing = false;
-  const shutdown = (): void => {
-    if (closing) return;
-    closing = true;
-    void monitor.stop().finally(() => { store.close(); process.exit(0); });
+  const server = createMcpServer(service);
+  const parentPid = process.ppid;
+  const lifetime = new ProcessLifetime({
+    input: process.stdin, output: process.stdout, parentAlive: () => parentIsAlive(parentPid),
+    cleanup: async () => {
+      await monitor.stop();
+      await server.close();
+      store.close();
+    },
+    exit: (code, reason) => {
+      process.stderr.write(`quota-guard: exiting (${reason})\n`);
+      process.exit(code);
+    },
+  });
+  server.server.onclose = () => lifetime.stop("transport_closed");
+  server.server.oninitialized = () => {
+    lifetime.markInitialized();
+    monitor.start();
   };
-  server.server.onclose = shutdown;
-  process.stdin.once("end", shutdown);
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
-  monitor.start();
+  process.once("SIGINT", () => lifetime.stop("signal"));
+  process.once("SIGTERM", () => lifetime.stop("signal"));
+  // Install EOF/error listeners before connecting so a short-lived client cannot race startup.
+  await server.connect(new StdioServerTransport());
+  if (process.stdin.destroyed || process.stdin.readableEnded) lifetime.stop("stdin_close");
+  if (process.stdout.destroyed) lifetime.stop("stdout_close");
 }
 
 main().catch((error: unknown) => {
