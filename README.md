@@ -139,6 +139,7 @@ node dist/main.js --doctor
 - [Security](docs/SECURITY.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
+- [Token-free scheduler bridge: verified probe and remaining work](docs/SCHEDULER_BRIDGE.md)
 
 ## Development
 
