@@ -4,6 +4,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Documentation
+
+- Consolidated installation, managed runtime, Windows/WSL and monitor guidance around
+  the supported v0.5.1 deployment. Removed completed implementation plans and the
+  superseded experimental Shared HTTP/scheduler investigation documents.
+- Removed obsolete `.cmd` launchers and the pre-managed HTTP transport probe from the
+  distributed source package. Managed Windows registration uses direct `node.exe` and
+  the no-console least-privilege supervisor; direct stdio remains supported elsewhere.
+
 ## [0.5.1] - 2026-08-30
 
 ### Fixed

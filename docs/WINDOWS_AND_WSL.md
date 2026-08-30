@@ -1,126 +1,76 @@
 # Windows and WSL2
 
-The recommended v0.5 [managed shared HTTP mode](MANAGED_CORE.md) has a wire-only
-Windows connector tested through WSL interop. It does not require direct Linux
-access to a Windows loopback listener, a network-mode change, or a second SQLite
-profile. It is not installed by the normal setup below.
+Choose one runtime host for each Codex home and database. The terminal appearance is
+irrelevant: a WSL task may intentionally call the Windows-hosted Guard through WSL
+interop, or it may run a fully Linux-native installation with separate state.
 
-## Choose the process host, not the terminal appearance
-
-The Codex agent environment and integrated terminal are separate settings.
-Changing the agent from native Windows to WSL requires an app restart; opening a
-WSL terminal alone does not change the agent. See the official
-[Windows app guide](https://learn.chatgpt.com/docs/windows/windows-app) and
-[WSL guide](https://learn.chatgpt.com/docs/windows/wsl).
-
-| Installation | MCP process / app-server | Profile and guard state | Use case |
+| Mode | Guard / Codex app-server | State and login | Use when |
 | --- | --- | --- | --- |
-| Windows-hosted launcher, native caller | Windows / Windows | Windows | Desktop native mode |
-| Same launcher, WSL2 caller | Windows through WSL interop / Windows | Same Windows profile and cache | Switch desktop agent modes without changing guard host |
-| Linux-native WSL | Linux / Linux | WSL ChatGPT profile, Linux-local SQLite | Independent Linux CLI/IDE workflow |
+| Managed Windows | Windows / Windows | Windows Codex home | Codex Desktop native tasks |
+| Managed Windows from WSL | Windows / Windows | Same Windows home and SQLite | Desktop switches native/WSL agent mode |
+| Linux-native WSL | Linux / Linux | Separate Linux home and SQLite | Independent Linux CLI/IDE workflow |
 
-The host is an explicit installation choice, not an automatic credential or
-old-version fallback. Do not start Linux Codex against a Windows Codex home that
-an active Windows desktop is using. Do not share a WAL database across the two
-OS runtimes. The Windows-hosted option shares state safely by keeping **every
-database reader/writer on Windows**, even when calls arrive from Linux.
+Never open one SQLite WAL database from both Windows and Linux, copy authentication
+files between homes, or start Linux Codex against an active Windows Codex home.
 
-## Recommended: Windows-hosted guard for both desktop modes
+## Managed Windows host
 
-Keep the checkout on a Windows drive. Build it using Windows Node:
+Keep the checkout on a Windows-accessible path and run with PowerShell 7 plus Windows
+Node:
 
 ```powershell
 git clone https://github.com/valentine-89/codex-quota-guard-mcp.git
 Set-Location .\codex-quota-guard-mcp
 npm ci
 npm run check
-Get-Command node.exe
-Get-Command codex.cmd
+node scripts/install-managed.mjs
 ```
 
-Locate the intended Windows Codex home (`CODEX_HOME` when explicitly set,
-otherwise the Windows user's `.codex`). The official CLI must be signed in to
-ChatGPT there. Prefer an installed CLI path that survives app updates; if using a
-versioned bundled executable, reverify its path after desktop upgrades.
+The installer registers `node.exe dist/http-connector.js`, one shared Windows core,
+and a least-privilege no-console recovery probe. It forwards only the named desktop
+capability variables and managed settings path through `WSLENV`; their values are not
+persisted by Guard. See [Managed deployment](MANAGED_CORE.md) for scheduler setup,
+private state and lifecycle details.
 
-Run `node scripts/install-managed.mjs` from Windows after the build. It preserves
-unrelated configuration and writes an entry shaped like this; paths are examples,
-and the protected settings path is generated per installation:
-
-```toml
-[mcp_servers.codex_quota_guard]
-command = 'node.exe'
-args = ['D:\tools\codex-quota-guard-mcp\dist\http-connector.js']
-startup_timeout_sec = 60
-env_vars = ['CODEX_APP_TOOLS_PIPE_PATH', 'CODEX_MCP_NODE_PATH', 'CODEX_THREAD_ID']
-
-[mcp_servers.codex_quota_guard.env]
-CODEX_HOME = 'C:\Users\YOUR_USER\.codex'
-CODEX_QUOTA_GUARD_NODE = 'C:\Program Files\nodejs\node.exe'
-CODEX_QUOTA_GUARD_MANAGED_SETTINGS = 'C:\Users\YOUR_USER\.codex\quota-guard\managed-KEY\runtime.json'
-WSLENV = 'CODEX_APP_TOOLS_PIPE_PATH/w:CODEX_MCP_NODE_PATH/w:CODEX_THREAD_ID/w:CODEX_QUOTA_GUARD_MANAGED_SETTINGS/w:CODEX_QUOTA_GUARD_NODE/w:CODEX_HOME/w'
-```
-
-`node.exe` is launched directly, so Codex does not create a `cmd.exe` or PowerShell
-console wrapper. `WSLENV` forwards explicitly selected Windows values when WSL
-starts that executable; `/w` means Linux-to-Windows and absence of `/p` keeps
-Windows paths unchanged. The installer merges existing entries process-locally.
-
-In WSL, verify `command -v node.exe` and Windows executable interoperability. If
-Windows executables are absent from that environment, the Windows-hosted mode is
-unavailable; do not silently change WSL/system settings. Use the separate Linux-native
-route or restore interop with explicit user authorization.
-
-### Workspace identity
-
-When a WSL task calls a **Windows-hosted** guard, obtain the Windows workspace
-root once and use it consistently for every tool call and resume:
-
-```bash
-wslpath -w "$PWD"
-```
-
-For `/mnt/d/project` this yields a drive path; a Linux filesystem workspace yields
-a `\\wsl.localhost\<distro>\...` UNC path. Pass that returned string as
-`workspaceRoot`, not the POSIX spelling. The guard identifies checkpoints but
-does not execute build commands in that directory. Keep actual shell commands
-in the task's native working directory. For an existing checkpoint, keep its
-stored workspace root; do not rewrite it when switching shells.
-
-Merge the [agent snippet](../examples/AGENTS-snippet.md). Reopen the task after
-registration. Do not restart the whole desktop during somebody else's active
-work merely to test a mode switch.
-
-### Verify both callers
-
-From Windows, test the actual registered entry:
+From a new Windows task, call `quota_status`, then preflight a small read-only job.
+To smoke the exact registered connector from the checkout:
 
 ```powershell
 node scripts/registered-smoke.mjs
 ```
 
-From Windows, ask the acceptance harness to test the same registered Windows
-connector through WSL interop:
+Do not terminate already-open tasks merely because they still have an older MCP
+connection. New registration applies when a task opens a new connection.
+
+## Windows-hosted calls from WSL
+
+First verify WSL can launch Windows executables:
 
 ```bash
+node.exe --version
+wslpath -w "$PWD"
+```
+
+Use the second command's Windows path as `workspaceRoot` for every Guard call and
+retain it in checkpoints and resume. Keep build commands in the native WSL working
+directory; Guard stores identity only and does not execute those commands.
+
+Test the registered Windows connector through interop from PowerShell:
+
+```powershell
 node scripts/registered-smoke.mjs --wsl
 ```
 
-Use the same explicit environment as the MCP entry when running these commands;
-a plain terminal does not automatically load MCP environment settings. In a
-fresh WSL-backed Codex task, verify all eight tools and call `quota_status`.
-Expect `stale=false`, `refreshInProgress=false`, the correct plan and both role
-entries. A fresh shared cache is valid evidence; do not force extra refreshes.
+If `node.exe` returns `Exec format error` or `/proc/sys/fs/binfmt_misc/WSLInterop` is
+absent, Windows executable interoperability is unavailable. Guard cannot repair it
+inside a task. Do not restart WSL while unrelated Linux work is active, modify system
+interop settings without permission, or fall back to a second core using Windows
+state. Preserve work and let the user choose a maintenance window.
 
-Do **not** use `--isolated` on a Linux caller launching a Windows server: that
-option creates host-local paths. If isolation is needed, run acceptance from
-Windows so temporary config/state paths remain Windows paths.
+## Linux-native WSL
 
-## Linux-native WSL installation
-
-Use a separate checkout under the Linux home and install dependencies with Linux
-Node. Do not reuse Windows `node_modules` (dependencies such as esbuild have
-platform-specific binaries).
+Use a checkout under the Linux filesystem with Linux Node and Linux Codex. Do not
+reuse Windows `node_modules`; native dependencies are platform-specific.
 
 ```bash
 command -v node
@@ -133,18 +83,12 @@ npm ci
 npm run check
 ```
 
-If `codex` resolves into Windows npm under `/mnt/c/.../AppData/Roaming/npm`, it is
-not a Linux Codex installation. Select/install the official Linux CLI following
-the [WSL instructions](https://learn.chatgpt.com/docs/windows/wsl), and verify its
-version. Do not substitute an older bundled binary automatically.
-
-Register absolute **Linux** Node, entrypoint and CLI paths in the WSL client's
-actual Codex config:
+Register absolute Linux paths in that Linux client's Codex config:
 
 ```toml
 [mcp_servers.codex_quota_guard]
-command = '/home/YOUR_USER/.nvm/versions/node/vXX.YY.Z/bin/node'
-args = ['/home/YOUR_USER/tools/codex-quota-guard-mcp/dist/main.js']
+command = '/absolute/path/to/linux/node'
+args = ['/absolute/path/to/codex-quota-guard-mcp/dist/main.js']
 startup_timeout_sec = 30
 
 [mcp_servers.codex_quota_guard.env]
@@ -152,59 +96,23 @@ CODEX_HOME = '/home/YOUR_USER/.codex'
 CODEX_CLI_PATH = '/absolute/path/to/linux/codex'
 ```
 
-Do not put Windows drive paths in Linux configuration or Linux paths in the
-Windows-hosted configuration. An NVM shell initialization file may not run when
-MCP starts; absolute executable paths avoid dependence on it. Use POSIX
-`workspaceRoot` values for this native Linux installation.
+The Linux Codex profile must be signed in to ChatGPT. A Windows npm shim under
+`/mnt/c/...`, an API-key-only Linux login, or filesystem access to Windows Codex
+state is not a substitute. Run `node dist/main.js --doctor` and
+`node scripts/live-acceptance.mjs --summary` before use.
 
-Then run `node dist/main.js --doctor` and
-`node scripts/live-acceptance.mjs --summary`. The official Linux profile must be
-signed in to **ChatGPT**, not only an API key. If authentication is missing or the
-wrong type, ask the user to complete the official login; do not read, copy, or
-rewrite credentials. Keep guard state on the Linux filesystem.
+The managed Windows scheduler bridge is not available to Linux-native Node through
+a Windows named pipe. Direct stdio quota protection and checkpointing still work;
+use the host's supported automation capability or report a manual resume time.
 
-## Scheduler bridge and zero-inference monitoring
+## Cross-platform acceptance rules
 
-The guard's quota tools do not depend on the experimental scheduler bridge.
-The [scheduler report](SCHEDULER_BRIDGE.md) records standalone schedule mutation
-on Windows. A WSL caller can also reach that shipped desktop MCP by launching
-its **Windows** Node runtime through interop, matching the installed desktop's
-observed approach. Linux Node cannot directly use a Windows named pipe.
-
-Read-only diagnostic through the Windows entrypoint:
-
-```powershell
-node dist/main.js --scheduler-bridge-doctor 'C:\actual\installed\codex-app-tools\version\server.mjs'
-```
-
-For a WSL caller use the managed `node.exe` connector. It requires the real
-desktop-supplied `CODEX_APP_TOOLS_PIPE_PATH` to reach the Windows child. Forward
-only that existing capability using process-scoped `WSLENV` (no `/p` path
-translation); never synthesize, print, save, or scan for its value. A shell
-launched outside desktop may have no capability. Do not treat a successful quota
-read as proof of scheduler availability.
-
-The diagnostic only lists tools. It cannot start work or consume inference
-tokens. Version0.3 adds the optional [five-minute monitor](MONITOR.md), requiring
-explicit server-path configuration and capability inheritance into the MCP.
-Do not install a periodic AI heartbeat as a substitute. All-tasks-idle lifetime,
-sleep and desktop restart acceptance are separate from a working quota read.
-
-## Acceptance record — 2026-08-30
-
-- Windows Node 24.14.0: full check (48 tests) and live v0.2 MCP handshake against the official
-  Windows app-server; primary and secondary quota roles present.
-- Ubuntu 22.04 WSL2, Linux Node 24.15.0: full check (48 tests) in a separate Linux-local
-  directory with Linux dependencies; real subprocess tests included.
-- Linux MCP client -> Windows launcher: eight-tool handshake and fresh shared
-  quota succeeded using the same Windows profile/cache as the native caller.
-- WSL interop -> Windows scheduler diagnostic: shipped MCP inventory succeeded;
-  automation_update advertised. No automation mutation or model turn in this test.
-- Linux-native live ChatGPT quota was **not accepted on this machine**: the
-  existing Linux profile reports API-key authentication. The available bundled
-  Linux CLI was 0.145.0-alpha.30; accessing the active Windows Codex home from that
-  CLI failed SQLite initialization. No credentials or desktop state were modified
-  to work around it. Use the verified Windows-hosted mode here.
-- Switching/restarting the active desktop itself was not tested, to avoid
-  interrupting other tasks. The tested boundary is real MCP stdio from Windows
-  and Linux clients, not a claim that every desktop release/configuration works.
+- Use `--isolated` only when temporary config/state paths belong to the server host.
+  Run an isolated Windows-hosted acceptance from Windows, not Linux.
+- A fresh shared-cache result is valid; do not bypass lease/backoff to force another
+  upstream quota read.
+- Verify all eight tools, `stale=false`, the intended role, and a real preflight.
+- A quota read does not prove scheduler capability. Check `quota_status.monitor`
+  separately and preserve the original heartbeat when the bridge is unavailable.
+- Never change Wi-Fi, copy credentials, request elevation or restart Codex/WSL just
+  to obtain a cleaner smoke result.

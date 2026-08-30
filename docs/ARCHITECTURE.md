@@ -4,8 +4,8 @@
 
 - `CodexAppServerClient` starts a short-lived official app-server, initializes JSON-RPC, reads account metadata and rate-limit windows, then terminates the child. It never reads auth files.
 - `QuotaGuardService` applies cache, lease, backoff, plan profiles, passive learning, admission, and defer/resume policies.
-- `StateStore` owns additive v0.2 SQLite persistence for cache/checkpoints plus samples, account-plan overrides, idempotent admissions, and quota-owned defer records.
-- `mcp-server` exposes eight bounded tools over stdio or opt-in shared HTTP.
+- `StateStore` owns additive SQLite persistence for cache/checkpoints plus samples, account-plan overrides, idempotent admissions, quota-owned defer records and monitor recovery state.
+- `mcp-server` exposes eight bounded tools over direct stdio or managed shared HTTP.
 - `createRuntime` owns the shared service/store/monitor construction. Managed
   `http-main` holds a separate exclusive ownership lock, starts the monitor without
   client initialization and uses `http-server` request-scoped protocol resources.
@@ -33,7 +33,7 @@ The cache profile key is derived from the normalized Codex home. The account fin
 
 ## Admission learning
 
-Each non-deferred `job_preflight` inserts an idempotent admission keyed by profile, account, plan, role/limit bucket, and caller job ID. Pending admissions accumulate until a later fresh snapshot reports a positive five-hour delta. The delta is divided by the pending count and stored in a 20-observation rolling mean. Homogeneous intervals also update the matching job-class mean; mixed intervals update only the global mean. Reset epochs and identity changes isolate samples automatically. Secondary long-only and primary weekly-only buckets never fabricate a five-hour learning sample. Weekly-only quota at/below its threshold defers only for a confirmed reset strictly under24 hours; otherwise `weekly_advisory` warns without a Guard stop or monitor wake.
+Each non-deferred `job_preflight` inserts an idempotent admission keyed by profile, account, plan, role/limit bucket, and caller job ID. Pending admissions accumulate until a later fresh snapshot reports a positive five-hour delta. The delta is divided by the pending count and stored in a 20-observation rolling mean. Homogeneous intervals also update the matching job-class mean; mixed intervals update only the global mean. Reset epochs and identity changes isolate samples automatically. Secondary long-only and primary weekly-only buckets never fabricate a five-hour learning sample. Weekly-only quota at or below its threshold defers only for a confirmed reset strictly under 24 hours; otherwise `weekly_advisory` warns without a Guard stop or monitor wake.
 
 ## Defer ownership
 

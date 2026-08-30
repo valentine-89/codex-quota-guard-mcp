@@ -29,7 +29,7 @@ This is an **advisory admission guard**, not a hard token limit. It cannot stop 
 ### Windows and WSL2
 
 For a Windows desktop installation that switches between native and WSL agent
-mode, use the [Windows-hosted launcher configuration](docs/WINDOWS_AND_WSL.md).
+mode, use the [managed Windows-hosted installation](docs/MANAGED_CORE.md).
 Both callers then use the same Windows ChatGPT profile, guard process runtime,
 and shared cache. WSL interoperability must be enabled. No credential copying,
 Windows elevation, or periodic model invocation is required.
@@ -50,7 +50,35 @@ npm ci
 npm run check
 ```
 
-The command is intentionally ordinary Node.js: no global package install and no credential copy is needed. An AI agent can follow this README from a repository link, run the four commands above, and register the absolute `dist/main.js` path below. `npm run check` includes typecheck, lint, tests, and a fresh build. On Windows/WSL, prefer the managed installer because it also installs the no-console recovery supervisor.
+The command is intentionally ordinary Node.js: no global package install and no credential copy is needed. `npm run check` includes typecheck, lint, tests, and a fresh build.
+
+On Windows, including a checkout used from WSL through Windows interop, locate the
+installed versioned scheduler server when present, verify it, then run the managed
+installer with Windows Node:
+
+```powershell
+$pluginRoot = Join-Path $env:USERPROFILE '.codex\plugins\cache\openai-bundled\codex-app-tools'
+$schedulerServer = Get-ChildItem -LiteralPath $pluginRoot -Recurse -Filter server.mjs -File -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTimeUtc -Descending |
+  Select-Object -First 1
+if ($null -ne $schedulerServer) {
+  node scripts/scheduler-bridge-doctor.mjs --server $schedulerServer.FullName
+  $env:CODEX_QUOTA_GUARD_SCHEDULER_SERVER = $schedulerServer.FullName
+}
+node scripts/install-managed.mjs
+```
+
+It merges the MCP registration, creates one private per-user shared core, and
+installs a least-privilege no-console recovery probe. It preserves unrelated Codex
+configuration and never requests elevation. If `codex-app-tools` is absent, quota
+protection still installs but early heartbeat advancement reports unavailable; do
+not download or invent a substitute. See [the managed deployment guide](docs/MANAGED_CORE.md).
+Open a new Codex task after installation; already-open tasks retain their old MCP
+process and tool inventory.
+
+Linux and macOS use the direct stdio registration below. Linux-native WSL is a
+separate Linux installation; do not share its SQLite database or Codex home with
+the Windows managed core.
 
 Register the built entrypoint in `%USERPROFILE%\.codex\config.toml` on Windows:
 
@@ -97,7 +125,7 @@ Stale/refreshing data, spend control, exhausted individual limits and unknown re
 | `defer_automation_attach` | Bind the created heartbeat ID to its quota-owned defer record. |
 | `resume_prepare` | Supersede manual defers or validate an automation wake before work. |
 
-`defer_until_reset` prepares the automation contract. The calling Codex task must create the heartbeat and immediately attach its ID. On manual resume, `resume_prepare` returns only matching quota-guard automation IDs for best-effort deletion. A heartbeat whose defer was superseded exits without doing work. The optional v0.3 monitor advances attached heartbeats through the installed desktop scheduler bridge; it does not control the UI.
+`defer_until_reset` prepares the automation contract. The calling Codex task must create the heartbeat and immediately attach its ID. On manual resume, `resume_prepare` returns only matching quota-guard automation IDs for best-effort deletion. A heartbeat whose defer was superseded exits without doing work. The managed monitor can advance attached heartbeats through the installed desktop scheduler bridge; it does not control the UI.
 
 ### Primary and secondary sessions
 
@@ -137,27 +165,20 @@ This runtime-first design follows the official OpenAI guidance that Codex usage 
 | 1-10% | 60 seconds | Profile-aware admission or credit bypass |
 | 0% | Until reset + 30 seconds | Credit bypass or checkpoint/defer |
 
-TTL is the minimum across detected role allowances, bounded by reported reset boundaries. A usable secondary role or credit path keeps refresh possible while primary waits. All roles, including credits, refuse new admissions on stale data. All tasks using the same Codex home/state database share the cache, lease, and backoff; expired leases recover after a crashed process. Normal refresh is caller-driven. With the optional monitor configured and an attached pending defer, a shared timer checks quota at most once per five minutes (backoff may delay it).
+TTL is the minimum across detected role allowances, bounded by reported reset boundaries. A usable secondary role or credit path keeps refresh possible while primary waits. All roles, including credits, refuse new admissions on stale data. All tasks using the same Codex home/state database share the cache, lease, and backoff; expired leases recover after a crashed process. Normal refresh is caller-driven. With the managed monitor available and an attached pending defer, a shared timer checks quota at most once per five minutes (backoff may delay it).
 
-## Token-free early recovery monitor (v0.3)
+## Token-free early recovery monitor
 
 Multiple MCP instances are allowed; SQLite selects one quota-monitor owner and stores its next check deadline before I/O. No model turn is created to inspect quota. When fresh quota admits the deferred role, the monitor advances only its attached heartbeat. Changing to another signed-in account with sufficient quota also counts as recovery; its own thresholds and samples apply. Logout, unknown identity, stale data or insufficient quota do not authorize a wake.
 
 See [monitor setup and limitations](docs/MONITOR.md). This optional feature requires an installed trusted desktop scheduler server path plus the actual desktop-provided capability inherited by the MCP process. It is not enabled merely by cloning the repository. `quota_status.monitor` reports configuration availability, pending records and polling diagnostics. Without capability, original scheduled wakes remain unchanged.
 
-In the default stdio deployment, monitoring stops when all MCP processes exit, the app closes or the computer sleeps. No Windows service, startup daemon or token-consuming polling heartbeat is installed. Earlier scheduler delivery is best-effort, not an exact two-minute guarantee.
-
-Version0.3.1 automatically exits disconnected/orphaned MCP instances, expires
-unfinished initialization after60 seconds and bounds shutdown cleanup to5 seconds.
-Healthy idle connections remain usable. This is connection cleanup, not a global
-process cap: multiple legitimate stdio sessions may coexist with one shared monitor
-owner. See [lifetime details](docs/MONITOR.md#limits-and-diagnostics).
-
-A controlled live account-switch test verified automatic advancement, actual task
-wake about78 minutes before its old resume boundary, quota revalidation and
-heartbeat cleanup. An SDK harness kept MCP alive for this test; automatic desktop
-reconnection and sleep/restart behavior remain unverified. See the
-[acceptance timeline](docs/MONITOR.md#real-early-wake-after-account-switch).
+In direct stdio mode, monitoring stops when all Guard MCP processes exit. In managed
+Windows mode, the shared core stays alive only while attached recovery work exists;
+otherwise it exits after five idle minutes and is restarted by the next MCP request.
+The per-user probe does not invoke a model. Monitoring does not run while the user
+is logged out or the computer sleeps, and earlier scheduler delivery remains
+best-effort rather than an exact two-minute guarantee.
 
 ## Managed shared core (v0.5)
 
@@ -173,11 +194,11 @@ that opens a full Guard process for each task.
 
 ## Configuration
 
-Defaults require no configuration. To customize plan baselines, learning, a shorter automation ceiling (maximum 24 hours), refresh behavior, or the managed-core idle delay (`managedIdleMs`, default5 minutes), set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON file conforming to [`examples/config.schema.json`](examples/config.schema.json). v0.1 `warningRemainingPercent` and `deferRemainingPercent` are intentionally unsupported in v0.2. `CODEX_QUOTA_GUARD_STATE_DIR` selects the state directory unless `stateDir` is explicitly configured.
+Defaults require no configuration. To customize plan baselines, learning, a shorter automation ceiling (maximum 24 hours), refresh behavior, or the managed-core idle delay (`managedIdleMs`, default five minutes), set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON file conforming to [`examples/config.schema.json`](examples/config.schema.json). `CODEX_QUOTA_GUARD_STATE_DIR` selects the state directory unless `stateDir` is explicitly configured.
 
 Default state locations:
 
-- Windows: `%LOCALAPPDATA%\codex-quota-guard\state.sqlite`
+- Windows direct stdio: `%LOCALAPPDATA%\codex-quota-guard\state.sqlite`
 - Linux/macOS: `$XDG_STATE_HOME/codex-quota-guard/state.sqlite`, falling back to `~/.local/state/...`
 
 The Windows managed installer deliberately relocates its singleton state to the
@@ -193,6 +214,7 @@ node dist/main.js --doctor
 ## Documentation
 
 - [Getting started for humans and AI agents](docs/GETTING_STARTED.md)
+- [Managed Windows/WSL deployment](docs/MANAGED_CORE.md)
 - [Windows/WSL installation, mode switching, and acceptance](docs/WINDOWS_AND_WSL.md)
 - [MCP API reference](docs/MCP_API.md)
 - [Architecture](docs/ARCHITECTURE.md)
@@ -200,8 +222,6 @@ node dist/main.js --doctor
 - [Checkpoint and resume](docs/CHECKPOINT_AND_RESUME.md)
 - [Security](docs/SECURITY.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- [Token-free scheduler bridge: verified probe and remaining work](docs/SCHEDULER_BRIDGE.md)
 - [Five-minute monitor setup, lifecycle and limitations](docs/MONITOR.md)
 
 ## Development

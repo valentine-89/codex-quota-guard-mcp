@@ -4,7 +4,7 @@ The state database uses SQLite WAL, normal synchronous mode, a five-second busy 
 
 ## Adaptive TTL
 
-With defaults, high remaining quota is refreshed no more often than every 15 minutes; lower bands use 5 minutes, 2 minutes and 1 minute. A zero allowance can sleep until its reset plus grace. Shared TTL is the minimum across detected role allowances and their reset boundaries; a usable secondary role keeps refresh possible while primary is exhausted. Runtime credits cap TTL at the warning interval. No background timer polls: a caller must request status at or after that deadline.
+With defaults, high remaining quota is refreshed no more often than every 15 minutes; lower bands use 5 minutes, 2 minutes and 1 minute. A zero allowance can sleep until its reset plus grace. Shared TTL is the minimum across detected role allowances and their reset boundaries; a usable secondary role keeps refresh possible while primary is exhausted. Runtime credits cap TTL at the warning interval. During ordinary work refresh is caller-driven. The only background exception is the monitor's bounded five-minute revalidation while an active attached defer is waiting.
 
 No MCP input exposes a generic force-refresh switch. A manual or validated due-automation `resume_prepare` may expire a deferred selected-role snapshot after the configured minimum age, then uses the same shared lease/backoff for controlled revalidation. It cannot bypass an active backoff. A diagnostic follows normal cache policy. A passed reset marks cached data stale; reset grace never means old quota is fresh.
 
@@ -22,7 +22,7 @@ Lease acquisition uses `BEGIN IMMEDIATE`, removes an expired lease for the profi
 
 The backoff record is shared by all tasks and cleared only after a successful refresh.
 
-With the v0.3 monitor configured and an attached waiting defer, a durable shared
+With the monitor configured and an attached waiting defer, a durable shared
 deadline allows internal revalidation every five minutes even when exhausted-cache
 TTL runs until reset. It does not expose force refresh, bypass backoff or start a
 model turn. Local accelerated-heartbeat cleanup does not trigger quota refresh.

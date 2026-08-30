@@ -35,21 +35,33 @@ npm run check
 
 ## Register with Codex
 
-If the Windows desktop may switch between native and WSL agent mode, use the
-[Windows-hosted launcher recipe](WINDOWS_AND_WSL.md) instead of a Windows-only
-direct executable entry below. It keeps the guard, ChatGPT profile and SQLite
-cache on one host. The guide also covers independent Linux-native WSL installs.
+On Windows, use the [managed installer](MANAGED_CORE.md) after `npm run check`:
 
-Add one MCP entry using absolute paths. On Windows, edit `%USERPROFILE%\.codex\config.toml`:
+```powershell
+node scripts/install-managed.mjs
+```
+
+It safely merges the registration and installs the no-console shared runtime. If
+early heartbeat advancement is required, configure the trusted shipped scheduler
+server before the first install using the commands in that guide. The same managed
+installation supports Windows-hosted WSL calls. Do not manually replace it with one
+of the removed `.cmd` launchers from older releases.
+
+For Linux/macOS or fully Linux-native WSL, add one direct stdio MCP entry using
+absolute host-native paths:
 
 ```toml
 [mcp_servers.codex_quota_guard]
-command = 'C:\Program Files\nodejs\node.exe'
-args = ['C:\path\to\codex-quota-guard-mcp\dist\main.js']
+command = '/absolute/path/to/node'
+args = ['/absolute/path/to/codex-quota-guard-mcp/dist/main.js']
 startup_timeout_sec = 30
 ```
 
-Replace both paths with the actual executable and checkout locations (`Get-Command node` on PowerShell, `command -v node` on POSIX). TOML single-quoted strings use literal backslashes. On Linux/macOS use corresponding absolute paths. If `CODEX_HOME` is set, use its `config.toml` instead of the default. Merge only the quota-guard entry and preserve unrelated settings.
+Managed Windows users should let the installer write its connector entry. Replace
+both paths above with actual host-native executable and checkout locations
+(`command -v node` on POSIX). If
+`CODEX_HOME` is set, use that home's `config.toml`. Merge only the quota-guard entry
+and preserve unrelated settings.
 
 Merge [`../examples/AGENTS-snippet.md`](../examples/AGENTS-snippet.md) into the intended project `AGENTS.md` (or global instructions if the user wants all projects protected). Do not overwrite existing instructions. This step is required for automatic agent cooperation: installing MCP tools does not cause calls on its own. Open a new task after registration so both tools and instructions reload; existing tasks may retain their old inventory.
 
@@ -106,7 +118,11 @@ Plan baselines are Free/Go 20%, Plus/Team/fixed Business/Enterprise/Edu 10%, Pro
 
 For example, `quota_profile({"action":"adjust","deltaPercent":5})` stops 5 percentage points earlier; `-5` moves it later. `{"action":"reset"}` clears only the override, not learned history. Outside usage, reporting delays and overlapping jobs make passive estimates approximate.
 
-State is local SQLite under `%LOCALAPPDATA%\codex-quota-guard\state.sqlite` on Windows or `$XDG_STATE_HOME/codex-quota-guard/state.sqlite` on Linux/macOS (fallback `~/.local/state/...`). Never commit this file, checkpoints, or authentication material.
+Direct stdio state is local SQLite under `%LOCALAPPDATA%\codex-quota-guard\state.sqlite`
+on Windows or `$XDG_STATE_HOME/codex-quota-guard/state.sqlite` on Linux/macOS
+(fallback `~/.local/state/...`). Managed Windows state is in its private directory
+under the canonical Codex home. Never commit either database, checkpoints or
+authentication material.
 
 ## Configuration
 
@@ -123,13 +139,18 @@ CODEX_QUOTA_GUARD_CONFIG = 'C:\path\to\quota-guard.json'
 
 Explicit JSON `stateDir`, `codexHome`, and `codexCommand` take precedence over their environment equivalents. `minSamples` must not exceed `sampleWindow`; plan defaults must not exceed `maxThreshold` (at most 50). `maxAutomationWaitMs` can be reduced, never raised beyond 24 hours.
 
-## Upgrade from v0.1
+## Upgrade
 
 1. Finish or checkpoint active work. Inspect `git status` and preserve local changes. Do not reset or overwrite a dirty checkout.
 2. Stop only quota-guard processes when safe; do not kill the Codex app or unrelated tasks. Back up the SQLite state consistently: after all guard processes close, copy the database and any remaining `-wal`/`-shm` companions together, or use SQLite's online backup API. Never copy just the main file while a writer is active.
 3. Update the checkout to the intended release, then run `npm ci` and `npm run check`. Keep the registered absolute entrypoint unchanged when possible.
-4. Remove v0.1 percentage settings from the guard JSON and merge the v0.2 agent snippet. The MCP contract is intentionally breaking; SQLite migration is additive and preserves old checkpoints/cache. A v0.1 snapshot is revalidated before admission. Do not run old and new guard processes against the same state for ongoing work.
-5. Start a new task, verify the eight tools and `0.5.1` server version, then call `quota_status`. Use `npm run acceptance:live` for a protocol smoke without creating admissions or automations. Configure the optional [early-recovery monitor](MONITOR.md) separately; cloning/registering quota tools alone does not enable its scheduler capability. On Windows/WSL, the recommended [managed shared core](MANAGED_CORE.md) provides no-console, per-user recovery and capability renewal without a full-process fallback.
+4. For managed Windows, rerun `node scripts/install-managed.mjs`; it migrates owned
+   managed state and registration. For direct stdio, retain the absolute built
+   entrypoint. Do not run incompatible binaries against a newer state database.
+5. Start a new task, verify the eight tools and current package server version, then
+   call `quota_status`. Use `npm run acceptance:live` for a protocol smoke without
+   creating admissions or automations. `quota_status.monitor.available` separately
+   reports whether early scheduling is usable.
 
 For release acceptance, `npm run acceptance:live -- --isolated` uses a new temporary guard database while preserving the selected Codex login/profile. The script prints that directory and leaves it for inspection; do not publish its contents. Ordinary diagnostics should reuse shared state, not create isolated databases to bypass refresh limits. To smoke a registered command exactly, the script also accepts `--command <executable>` and `--args-json <JSON-string-array>` copied from the registration.
 
@@ -142,13 +163,20 @@ An interrupted migration rolls back transactionally. A database with a newer sch
 
 ## Uninstall
 
-Remove only `[mcp_servers.codex_quota_guard]` (and its environment table) from Codex config and the quota-guard instruction block from the chosen `AGENTS.md`. Cancel only known guard-owned heartbeat IDs, then start a new task. Keep the checkout and SQLite state unless the user explicitly requests their deletion; state includes checkpoints and learned profiles. Removing the MCP entry does not cancel existing Codex automations automatically.
+For managed Windows, first remove only the ownership-marked Scheduled Task using the
+command in [Managed deployment](MANAGED_CORE.md). Remove only
+`[mcp_servers.codex_quota_guard]` (and its environment table) from Codex config and
+the quota-guard instruction block from the chosen `AGENTS.md`. Cancel only known
+guard-owned heartbeat IDs, then start a new task. Keep the checkout and SQLite state
+unless the user explicitly requests deletion; removing the MCP entry does not cancel
+existing Codex automations automatically.
 
 ## Troubleshooting checklist
 
 1. Run `node dist/main.js --doctor` from the checkout.
 2. Verify `codex` is on `PATH` and is signed in; do not copy auth files.
-3. Confirm the registered command points to the built `dist/main.js` and uses absolute paths.
+3. Confirm direct stdio points to `dist/main.js`, or managed Windows points to
+   `node.exe` plus `dist/http-connector.js`; all file arguments must be absolute.
 4. Restart the Codex task after MCP config changes.
 5. For missing checkpoints or heartbeat, verify that the agent called `defer_until_reset` and then created/attached the returned automation. The MCP server cannot create Codex UI automations by itself.
 6. If a reserve allowance is expected but `lanes.secondary` is unavailable, inspect the raw app-server capability through a supported Codex build. Do not substitute an arbitrary `rateLimitsByLimitId` entry.

@@ -1,6 +1,6 @@
-# MCP API v0.2
+# MCP API reference
 
-Server: `codex-quota-guard-mcp`, version `0.5.1`, direct stdio or [managed shared Streamable HTTP](MANAGED_CORE.md). Eight v0.2 tools remain; `quota_status` additionally returns [monitor diagnostics](MONITOR.md), including `runtimeMode` and `requiresLiveClientConnection`. Successful results contain identical JSON in `structuredContent` and text content. Tool errors set `isError=true` with a bounded `{error:{code,message}}` payload; quota-read failures normally return a stale/unavailable snapshot with `error` populated. No tool accepts force refresh, credentials or a model name.
+Server: `codex-quota-guard-mcp`, version `0.5.1`, direct stdio or [managed shared Streamable HTTP](MANAGED_CORE.md). The public contract contains eight tools; `quota_status` additionally returns [monitor diagnostics](MONITOR.md), including `runtimeMode` and `requiresLiveClientConnection`. Successful results contain identical JSON in `structuredContent` and text content. Tool errors set `isError=true` with a bounded `{error:{code,message}}` payload; quota-read failures normally return a stale/unavailable snapshot with `error` populated. No tool accepts force refresh, credentials or a model name.
 
 Timestamps are ISO 8601 UTC strings; missing timestamps are `null`. Percent values are percentage points, not token counts. Paths must be absolute on the MCP host. Use the actual Codex task identifier consistently, not a descriptive label. `laneId` defaults to `primary`; `secondary` is only for small work; `unknown` fails safe.
 
@@ -84,7 +84,7 @@ Returns `deferId`, `defer`, `checkpoint`, `resumeAt`, `canSchedule`, `reason`, `
 
 `resumeAt` is the latest known reset of every mandatory blocking constraint plus grace. Any unknown mandatory reset prevents scheduling. A wait above 24 hours is a hard stop (`canSchedule=false`); keep the checkpoint and tell the user. A usable secondary allowance does not shorten the main task's wait.
 
-When `canSchedule=true`, the calling task must create a heartbeat in that same task using the returned time and exact prompt with the host automation tool. Use that tool's supported schedule format; never write scheduling files or assume that passing an ISO time as a recurrence string is valid. Confirm the tool actually returns a created automation ID, then attach it. Do not claim a heartbeat exists if creation fails. This MCP exposes no scheduler bridge or background quota-reset watcher.
+When `canSchedule=true`, the calling task must create a heartbeat in that same task using the returned time and exact prompt with the host automation tool. Use that tool's supported schedule format; never write scheduling files or assume that passing an ISO time as a recurrence string is valid. Confirm the tool actually returns a created automation ID, then attach it. Do not claim a heartbeat exists if creation fails. The [monitor](MONITOR.md) can later advance only that attached owned heartbeat; it cannot create the initial automation.
 
 ## `defer_automation_attach`
 
@@ -111,4 +111,4 @@ For manual resume, all active matching workspace/task/role records are atomicall
 
 Automation calls must supply the original `deferId`. Missing, superseded, already-fired, wrong-scope or early wakes return `shouldExit=true` without quota I/O. A due active record is claimed as fired exactly once before revalidation. `canResume` is selected-role-specific; the top-level primary recommendation must not override a valid secondary result.
 
-On valid wake, check `canResume`, load the checkpoint, inspect current repository state, and preflight pending work. If still blocked, create a new defer for that role and attach a new eligible heartbeat; best-effort delete the completed heartbeat. For superseded wakes, exit without work. Manual early reset detection is rate-limited by snapshot age (default 60 seconds), shared lease and backoff; there is no public force switch. The optional v0.3 monitor authorizes a claimed early wake before the original `resumeAt`, but never bypasses revalidation. New-account quota can recover the same task/role without reusing the old account profile.
+On valid wake, check `canResume`, load the checkpoint, inspect current repository state, and preflight pending work. If still blocked, create a new defer for that role and attach a new eligible heartbeat; best-effort delete the completed heartbeat. For superseded wakes, exit without work. Manual early reset detection is rate-limited by snapshot age (default 60 seconds), shared lease and backoff; there is no public force switch. The monitor authorizes a claimed early wake before the original `resumeAt`, but never bypasses revalidation. New-account quota can recover the same task/role without reusing the old account profile.
