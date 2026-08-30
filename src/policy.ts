@@ -1,20 +1,48 @@
+import type { GuardConfig } from "./config.js";
 import type {
+  CreditsSnapshot,
+  IndividualLimitSnapshot,
   JobClass,
   JobPreflightResult,
+  PolicyProfile,
+  QuotaBucket,
+  QuotaPath,
   QuotaRecommendation,
   QuotaSnapshot,
   QuotaWindow,
   RawRateLimitSnapshot,
   RawRateLimitWindow,
   RawRateLimitsResponse,
+  QuotaLaneId,
 } from "./types.js";
-import type { GuardConfig } from "./config.js";
 
 const FIVE_HOUR_MINUTES = 300;
 const WEEKLY_MINUTES = 10_080;
+const FLEXIBLE_PLANS = new Set([
+  "self_serve_business_usage_based",
+  "enterprise_cbp_automation",
+  "enterprise_cbp_usage_based",
+]);
+const PRO_PLANS = new Set(["pro", "prolite"]);
+const FREE_GO_PLANS = new Set(["free", "go"]);
+const STANDARD_PLANS = new Set([
+  "plus", "team", "self_serve_business_prolite", "business", "ent26", "enterprise", "edu",
+]);
 
 function asFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function laneMetadata(raw: RawRateLimitSnapshot, key: string | null): QuotaLaneId {
+  // Observed app-server quota identifier, independent of display/model names.
+  // Unknown non-default buckets remain informational, never interchangeable.
+  const bucketId = asString(raw.limitId) ?? key;
+  if (bucketId === "base_model_inference") return "secondary";
+  return "unknown";
 }
 
 function normalizeWindow(raw: RawRateLimitWindow | null | undefined): QuotaWindow | null {
@@ -22,59 +50,163 @@ function normalizeWindow(raw: RawRateLimitWindow | null | undefined): QuotaWindo
   const used = asFiniteNumber(raw.usedPercent);
   const duration = asFiniteNumber(raw.windowDurationMins);
   if (used === null || duration === null || duration <= 0) return null;
-
   const usedPercent = Math.min(100, Math.max(0, Math.round(used)));
   const resetSeconds = asFiniteNumber(raw.resetsAt);
   return {
     usedPercent,
     remainingPercent: 100 - usedPercent,
     windowDurationMins: Math.round(duration),
-    resetsAt: resetSeconds !== null && resetSeconds > 0
-      ? new Date(resetSeconds * 1_000).toISOString()
-      : null,
+    resetsAt: resetSeconds !== null && resetSeconds > 0 ? new Date(resetSeconds * 1_000).toISOString() : null,
   };
 }
 
-function chooseSnapshot(raw: RawRateLimitsResponse): RawRateLimitSnapshot {
-  if (raw.rateLimits) return raw.rateLimits;
-  const buckets = raw.rateLimitsByLimitId ? Object.values(raw.rateLimitsByLimitId) : [];
-  return buckets.find((bucket) => {
-    const windows = [bucket.primary, bucket.secondary];
-    return windows.some((window) => window?.windowDurationMins === FIVE_HOUR_MINUTES);
-  }) ?? buckets[0] ?? {};
+function normalizeCredits(raw: RawRateLimitSnapshot["credits"]): CreditsSnapshot | null {
+  if (!raw || typeof raw.hasCredits !== "boolean" || typeof raw.unlimited !== "boolean") return null;
+  return {
+    hasCredits: raw.hasCredits,
+    unlimited: raw.unlimited,
+    balance: typeof raw.balance === "string" ? raw.balance : null,
+  };
+}
+
+function normalizeIndividualLimit(raw: RawRateLimitSnapshot["individualLimit"]): IndividualLimitSnapshot | null {
+  if (!raw) return null;
+  const remaining = asFiniteNumber(raw.remainingPercent);
+  const resetSeconds = asFiniteNumber(raw.resetsAt);
+  if (typeof raw.limit !== "string" || typeof raw.used !== "string" || remaining === null) {
+    throw new Error("Cannot safely normalize the reported individual spend limit");
+  }
+  return {
+    limit: raw.limit,
+    used: raw.used,
+    remainingPercent: Math.min(100, Math.max(0, Math.round(remaining))),
+    resetsAt: resetSeconds !== null && resetSeconds > 0 ? new Date(resetSeconds * 1_000).toISOString() : null,
+  };
+}
+
+export function normalizeBucket(raw: RawRateLimitSnapshot, key: string | null = null): QuotaBucket {
+  const windows = [normalizeWindow(raw.primary), normalizeWindow(raw.secondary)].filter(
+    (window): window is QuotaWindow => window !== null,
+  );
+  const laneId = laneMetadata(raw, key);
+  return {
+    limitId: asString(raw.limitId) ?? key,
+    limitName: asString(raw.limitName),
+    planType: asString(raw.planType),
+    fiveHour: windows.find((window) => window.windowDurationMins === FIVE_HOUR_MINUTES) ?? null,
+    weekly: windows.find((window) => window.windowDurationMins === WEEKLY_MINUTES) ?? null,
+    longWindows: windows.filter((window) => window.windowDurationMins > FIVE_HOUR_MINUTES),
+    credits: normalizeCredits(raw.credits),
+    individualLimit: normalizeIndividualLimit(raw.individualLimit),
+    spendControlReached: typeof raw.spendControlReached === "boolean" ? raw.spendControlReached : null,
+    rateLimitReachedType: asString(raw.rateLimitReachedType),
+    laneId,
+  };
 }
 
 export interface NormalizedRateLimits {
-  fiveHour: QuotaWindow | null;
-  weekly: QuotaWindow | null;
-  planType: string | null;
-  rateLimitReachedType: string | null;
+  activeBucket: QuotaBucket;
+  buckets: Record<string, QuotaBucket>;
+  laneBuckets: Partial<Record<QuotaLaneId, QuotaBucket>>;
 }
 
 export function normalizeRateLimits(raw: RawRateLimitsResponse): NormalizedRateLimits {
-  const snapshot = chooseSnapshot(raw);
-  const windows = [normalizeWindow(snapshot.primary), normalizeWindow(snapshot.secondary)].filter(
-    (window): window is QuotaWindow => window !== null,
-  );
+  const activeBucket = normalizeBucket(raw.rateLimits ?? {});
+  if (activeBucket.laneId === "unknown") activeBucket.laneId = "primary";
+  const buckets: Record<string, QuotaBucket> = {};
+  for (const [key, value] of Object.entries(raw.rateLimitsByLimitId ?? {})) {
+    buckets[key] = normalizeBucket(value, key);
+  }
+  const activeKey = activeBucket.limitId ?? "active";
+  buckets[activeKey] = activeBucket;
+  const laneBuckets: Partial<Record<QuotaLaneId, QuotaBucket>> = {};
+  // The active/default bucket is the primary lane unless the backend explicitly labels it secondary.
+  laneBuckets[activeBucket.laneId] = activeBucket;
+  for (const bucket of Object.values(buckets)) {
+    if (bucket.laneId === "secondary" && bucket.limitId !== activeBucket.limitId) laneBuckets.secondary = bucket;
+  }
+  return { activeBucket, buckets, laneBuckets };
+}
+
+export function planGroupFor(planType: string | null): PolicyProfile["planGroup"] {
+  const normalized = planType?.toLocaleLowerCase() ?? "unknown";
+  if (FREE_GO_PLANS.has(normalized)) return "free_go";
+  if (PRO_PLANS.has(normalized)) return "pro";
+  if (FLEXIBLE_PLANS.has(normalized)) return "flexible";
+  if (STANDARD_PLANS.has(normalized)) return "standard";
+  return "unknown";
+}
+
+export function baselineForPlan(planType: string | null, config: GuardConfig): number {
+  switch (planGroupFor(planType)) {
+    case "free_go": return config.planDefaults.freeGo;
+    case "pro": return config.planDefaults.pro;
+    case "standard":
+    case "flexible": return config.planDefaults.standard;
+    case "unknown": return config.planDefaults.unknown;
+  }
+}
+
+export function buildPolicyProfile(
+  planType: string | null,
+  learnedMeanPercent: number | null,
+  sampleCount: number,
+  userOverridePercent: number,
+  jobClass: JobClass | null,
+  config: GuardConfig,
+): PolicyProfile {
+  const baseline = baselineForPlan(planType, config);
+  const ready = learnedMeanPercent !== null && sampleCount >= config.minSamples;
+  const automatic = ready
+    ? Math.max(baseline, Math.ceil(learnedMeanPercent * config.safetyFactor))
+    : baseline;
   return {
-    fiveHour: windows.find((window) => window.windowDurationMins === FIVE_HOUR_MINUTES) ?? null,
-    weekly: windows.find((window) => window.windowDurationMins === WEEKLY_MINUTES) ?? null,
-    planType: typeof snapshot.planType === "string" ? snapshot.planType : null,
-    rateLimitReachedType: typeof snapshot.rateLimitReachedType === "string"
-      ? snapshot.rateLimitReachedType
-      : null,
+    planGroup: planGroupFor(planType),
+    baselineRemainingPercent: baseline,
+    learnedMeanPercent,
+    sampleCount,
+    confidence: ready ? "ready" : sampleCount > 0 ? "low" : "cold_start",
+    userOverridePercent,
+    automaticThresholdPercent: automatic,
+    effectiveThresholdPercent: Math.min(config.maxThreshold, Math.max(1, automatic + userOverridePercent)),
+    jobClass,
   };
 }
 
-export function recommendationFor(
-  fiveHour: QuotaWindow | null,
-  rateLimitReachedType: string | null,
-  config: GuardConfig,
-): QuotaRecommendation {
-  if (rateLimitReachedType || !fiveHour) return rateLimitReachedType ? "checkpoint_and_defer" : "caution";
-  if (fiveHour.remainingPercent <= config.deferRemainingPercent) return "checkpoint_and_defer";
-  if (fiveHour.remainingPercent <= config.warningRemainingPercent) return "caution";
-  return "continue";
+export function creditsUsable(bucket: QuotaBucket | null): boolean {
+  if (!bucket?.credits || (!bucket.credits.hasCredits && !bucket.credits.unlimited)) return false;
+  if (bucket.spendControlReached === true) return false;
+  if (bucket.individualLimit && bucket.individualLimit.remainingPercent <= 0) return false;
+  return bucket.rateLimitReachedType === null || bucket.rateLimitReachedType === "rate_limit_reached";
+}
+
+export function allowanceWindow(bucket: QuotaBucket | null): QuotaWindow | null {
+  return bucket?.fiveHour ?? bucket?.longWindows.slice().sort((a, b) => a.windowDurationMins - b.windowDurationMins)[0] ?? null;
+}
+
+function includedUsable(bucket: QuotaBucket | null, threshold: number): boolean {
+  // Only the explicitly identified reserve supports a long-only included window.
+  // A primary long window alone does not establish permission to bypass 5h.
+  if (!bucket || (!bucket.fiveHour && bucket.laneId !== "secondary")) return false;
+  const allowance = allowanceWindow(bucket);
+  if (!allowance || allowance.remainingPercent <= threshold) return false;
+  if (bucket.longWindows.some((window) => window.remainingPercent <= 0)) return false;
+  if (bucket.spendControlReached === true || bucket.individualLimit?.remainingPercent === 0) return false;
+  return bucket.rateLimitReachedType === null;
+}
+
+export function quotaPathFor(bucket: QuotaBucket | null, threshold: number): QuotaPath {
+  if (includedUsable(bucket, threshold)) return "included";
+  if (creditsUsable(bucket)) return "credits";
+  return "unavailable";
+}
+
+export function recommendationFor(bucket: QuotaBucket | null, profile: PolicyProfile, config: GuardConfig): QuotaRecommendation {
+  const path = quotaPathFor(bucket, profile.effectiveThresholdPercent);
+  if (path === "unavailable") return "checkpoint_and_defer";
+  if (path === "credits") return "caution";
+  const remaining = allowanceWindow(bucket)?.remainingPercent ?? 0;
+  return remaining <= profile.effectiveThresholdPercent + config.cautionMarginPercent ? "caution" : "continue";
 }
 
 export function ttlForWindow(fiveHour: QuotaWindow | null, nowMs: number, config: GuardConfig): number {
@@ -82,7 +214,9 @@ export function ttlForWindow(fiveHour: QuotaWindow | null, nowMs: number, config
   const remaining = fiveHour.remainingPercent;
   if (remaining <= 0 && fiveHour.resetsAt) {
     const resetMs = Date.parse(fiveHour.resetsAt);
-    if (Number.isFinite(resetMs) && resetMs > nowMs) return Math.max(config.ttlMs.low, resetMs + config.resetGraceMs - nowMs);
+    if (Number.isFinite(resetMs) && resetMs > nowMs) {
+      return Math.max(config.ttlMs.low, resetMs + config.resetGraceMs - nowMs);
+    }
   }
   if (remaining > 50) return config.ttlMs.high;
   if (remaining > 20) return config.ttlMs.medium;
@@ -90,47 +224,77 @@ export function ttlForWindow(fiveHour: QuotaWindow | null, nowMs: number, config
   return config.ttlMs.low;
 }
 
-export function preflightJob(snapshot: QuotaSnapshot, jobClass: JobClass): JobPreflightResult {
-  const remaining = snapshot.fiveHour?.remainingPercent ?? null;
-  const exhausted = snapshot.rateLimitReachedType !== null || remaining === 0;
-  const unknown = snapshot.fiveHour === null;
-  const lowStale = snapshot.stale && remaining !== null && remaining <= 20;
+export function preflightJob(snapshot: QuotaSnapshot, jobClass: JobClass, config: GuardConfig): JobPreflightResult {
+  return preflightLane(snapshot, jobClass, config, "primary");
+}
 
-  if (exhausted) {
+export function preflightLane(snapshot: QuotaSnapshot, jobClass: JobClass, config: GuardConfig, laneId: QuotaLaneId): JobPreflightResult {
+  const lane = snapshot.lanes[laneId];
+  if (snapshot.stale || snapshot.refreshInProgress || (laneId === "secondary" && jobClass !== "small")) {
     return {
-      decision: "defer",
-      reason: "The five-hour Codex window is exhausted or the backend reports a reached limit.",
-      requiredAction: "Create a checkpoint and defer until the reported reset time.",
-      quota: snapshot,
+      decision: "defer", reason: snapshot.stale || snapshot.refreshInProgress
+        ? "Quota is stale or being refreshed; no new admission is safe on either role."
+        : "The secondary role is reserved for small, lightweight work. Keep the primary task deferred.",
+      requiredAction: "Save a checkpoint and inspect the selected role again at its next permitted refresh.",
+      admissionRecorded: false, quotaPath: "unavailable", mayConsumeCredits: false,
+      thresholdPercent: lane?.profile.effectiveThresholdPercent ?? snapshot.profile.effectiveThresholdPercent,
+      quota: snapshot, laneId,
     };
   }
-  if ((unknown || lowStale) && jobClass === "long") {
+  if (!lane || !lane.available || !lane.bucket) {
     return {
-      decision: "defer",
-      reason: unknown
-        ? "The current five-hour quota is unavailable."
-        : "The last low-quota snapshot is stale.",
-      requiredAction: "Do not start long work; checkpoint or wait for a fresh shared snapshot.",
-      quota: snapshot,
+      decision: "defer", reason: `The requested ${laneId} quota lane is not explicitly available from app-server.`,
+      requiredAction: "Keep the primary task deferred and retry only after quota_status detects this lane.",
+      admissionRecorded: false, quotaPath: "unavailable", mayConsumeCredits: false,
+      thresholdPercent: snapshot.profile.effectiveThresholdPercent, quota: snapshot,
+      laneId,
     };
   }
-  if (remaining !== null && remaining <= 10 && jobClass === "long") {
+  const bucket = lane.bucket;
+  const profile = lane.profile;
+  const path = quotaPathFor(bucket, profile.effectiveThresholdPercent);
+  const remaining = allowanceWindow(bucket)?.remainingPercent ?? null;
+  if (path === "unavailable") {
     return {
       decision: "defer",
-      reason: `Only ${remaining}% of the five-hour quota remains.`,
-      requiredAction: "Create a checkpoint before starting another long job.",
+      reason: remaining === null
+        ? "No usable fixed or credit-backed Codex allowance is currently available."
+        : `Only ${remaining}% of the selected allowance remains and no runtime credit bypass is usable.`,
+      requiredAction: "Create a checkpoint and defer according to the reported blocking reset.",
+      admissionRecorded: false,
+      quotaPath: path,
+      mayConsumeCredits: false,
+      thresholdPercent: profile.effectiveThresholdPercent,
       quota: snapshot,
+      laneId,
     };
   }
-  if (snapshot.recommendation !== "continue" || jobClass === "long" && remaining !== null && remaining <= 20) {
+  if (path === "credits") {
     return {
       decision: "caution",
-      reason: remaining === null
-        ? "Quota could not be confirmed. Small work may continue conservatively."
-        : `${remaining}% of the five-hour quota remains; keep the next step bounded and resumable.`,
-      requiredAction: jobClass === "small" ? null : "Checkpoint before the next expensive boundary.",
+      reason: "Included allowance is blocked or below the learned threshold; runtime credits can admit this job.",
+      requiredAction: "Proceed only with awareness that this job may consume purchased or workspace credits.",
+      admissionRecorded: false,
+      quotaPath: path,
+      mayConsumeCredits: true,
+      thresholdPercent: profile.effectiveThresholdPercent,
       quota: snapshot,
+      laneId,
     };
   }
-  return { decision: "allow", reason: "Shared quota snapshot allows this job class.", requiredAction: null, quota: snapshot };
+  const caution = remaining !== null
+    && remaining <= profile.effectiveThresholdPercent + config.cautionMarginPercent;
+  return {
+    decision: caution ? "caution" : "allow",
+    reason: caution
+      ? `${remaining}% remains, close to the ${profile.effectiveThresholdPercent}% learned admission threshold.`
+      : `The selected included allowance admits this ${jobClass} job.`,
+    requiredAction: caution ? "Keep the job bounded and resumable." : null,
+    admissionRecorded: false,
+    quotaPath: path,
+    mayConsumeCredits: false,
+    thresholdPercent: profile.effectiveThresholdPercent,
+    quota: snapshot,
+    laneId,
+  };
 }

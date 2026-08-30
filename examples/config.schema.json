@@ -1,15 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/valentine-89/codex-quota-guard-mcp/blob/main/examples/config.schema.json",
-  "title": "Codex Quota Guard MCP configuration",
+  "title": "Codex Quota Guard MCP v0.2 configuration",
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "$schema": { "type": "string" },
     "stateDir": { "type": "string", "minLength": 1 },
     "codexHome": { "type": "string", "minLength": 1 },
     "codexCommand": { "type": "string", "minLength": 1 },
-    "warningRemainingPercent": { "type": "number", "minimum": 1, "maximum": 99, "default": 20 },
-    "deferRemainingPercent": { "type": "number", "minimum": 1, "maximum": 99, "default": 10 },
+    "planDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "freeGo": { "type": "number", "minimum": 1, "maximum": 50, "default": 20 },
+        "standard": { "type": "number", "minimum": 1, "maximum": 50, "default": 10 },
+        "pro": { "type": "number", "minimum": 1, "maximum": 50, "default": 5 },
+        "unknown": { "type": "number", "minimum": 1, "maximum": 50, "default": 15 }
+      }
+    },
+    "sampleWindow": { "type": "integer", "minimum": 3, "maximum": 100, "default": 20 },
+    "minSamples": { "type": "integer", "minimum": 1, "maximum": 100, "default": 3 },
+    "safetyFactor": { "type": "number", "minimum": 1, "maximum": 5, "default": 1.5 },
+    "maxThreshold": { "type": "number", "minimum": 1, "maximum": 50, "default": 50 },
+    "cautionMarginPercent": { "type": "number", "minimum": 1, "maximum": 25, "default": 5 },
+    "maxAutomationWaitMs": { "type": "integer", "minimum": 60000, "maximum": 86400000, "default": 86400000 },
+    "manualResumeMinAgeMs": { "type": "integer", "minimum": 30000, "maximum": 900000, "default": 60000 },
     "appServerTimeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000, "default": 15000 },
     "leaseDurationMs": { "type": "integer", "minimum": 5000, "maximum": 120000, "default": 30000 },
     "resetGraceMs": { "type": "integer", "minimum": 0, "maximum": 300000, "default": 30000 },

@@ -4,9 +4,9 @@ The state database uses SQLite WAL, normal synchronous mode, a five-second busy 
 
 ## Adaptive TTL
 
-High remaining quota changes slowly and is refreshed at most every 15 minutes. Refresh frequency increases as remaining quota falls. At zero, the next permitted refresh is the backend reset timestamp plus the configured grace period, preventing pointless polling while blocked.
+With defaults, high remaining quota is refreshed no more often than every 15 minutes; lower bands use 5 minutes, 2 minutes and 1 minute. A zero allowance can sleep until its reset plus grace. Shared TTL is the minimum across detected role allowances and their reset boundaries; a usable secondary role keeps refresh possible while primary is exhausted. Runtime credits cap TTL at the warning interval. No background timer polls: a caller must request status at or after that deadline.
 
-No MCP input can force a refresh. A diagnostic run follows the same cache policy.
+No MCP input exposes a generic force-refresh switch. A manual or validated due-automation `resume_prepare` may expire a deferred selected-role snapshot after the configured minimum age, then uses the same shared lease/backoff for controlled revalidation. It cannot bypass an active backoff. A diagnostic follows normal cache policy. A passed reset marks cached data stale; reset grace never means old quota is fresh.
 
 ## Single-flight lease
 
@@ -24,4 +24,4 @@ The backoff record is shared by all tasks and cleared only after a successful re
 
 ## Stale safety
 
-A stale snapshot is labeled, never presented as current. Long jobs are deferred when the five-hour quota is unknown or when a low-quota snapshot is stale. Small bounded work may continue with a caution decision unless the backend reports exhaustion.
+A stale snapshot or in-progress refresh cannot admit any new job, including secondary or credit-backed work. These gaps invalidate pending learning intervals, not previously accepted samples. The next successful refresh establishes a new observation baseline.

@@ -1,7 +1,10 @@
 ## Codex quota guard
 
 - Call `quota_status` near the beginning of long-running work. Shared caching makes this inexpensive across concurrent tasks.
-- Call `job_preflight` immediately before a long build, test, deploy, migration, training, packaging, or other hard-to-interrupt job.
-- Obey a `defer` decision. Call `defer_until_reset`, then create a same-task Codex heartbeat automation using the returned `resumeAt` and `automationPrompt`.
-- On wake, call `quota_status` first and `checkpoint_get` second. Do not continue if quota is still exhausted or unavailable.
+- Break implementation and research into bounded part-jobs too, not only builds. Call `job_preflight` immediately before each part-job with a stable unique `jobId`, the actual task ID, absolute `workspaceRoot`, description and job class. Reuse the ID for retries; treat `allow` and `caution` as an admission, not a reservation. On `caution`, save a checkpoint before further substantial work; explain `mayConsumeCredits=true` before proceeding.
+- Keep the main task on `laneId="primary"`. For a separate lightweight session, call `quota_status` first and use `sessionRole="lightweight"` only when `lanes.secondary.available=true`; roles are stable and must not be replaced with model names.
+- Obey `defer`: immediately call `defer_until_reset` with actual task ID, the same lane/job class and bounded state. When `canSchedule=true`, create a same-task heartbeat using the returned time/prompt and the host tool's supported schedule format, then immediately attach its real ID. Do not insert more investigation/build steps before this sequence. If creation/attachment fails, report the checkpoint and failure; do not claim a heartbeat exists. Never schedule when `canSchedule=false`.
+- When the user manually resumes deferred work, call `resume_prepare` with `trigger="manual"` before quota checks. Best-effort delete only `automationIdsToCancel` returned by quota guard; never cancel other automations.
+- A heartbeat must first call `resume_prepare` with workspace, task ID, lane, defer ID and `trigger="automation"`; stop when `shouldExit=true`. Otherwise inspect `canResume` for that role, then load the checkpoint. If still blocked, defer again on the same role; best-effort delete the completed heartbeat. Never continue on stale or unavailable quota.
+- Honor user requests to increase/decrease the threshold via `quota_profile adjust`; use `quota_profile reset` only when requested.
 - Never place credentials, complete prompts, or complete model responses in checkpoint fields.

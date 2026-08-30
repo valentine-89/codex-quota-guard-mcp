@@ -10,30 +10,52 @@ import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
-test("MCP handshake exposes exactly the five public tools and returns structured quota", async () => {
+test("MCP v0.2 handshake exposes the adaptive profile and defer lifecycle tools", async () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-mcp-"));
   const store = new StateStore(join(directory, "state.sqlite"));
   const service = new QuotaGuardService(testConfig(join(directory, "state.sqlite")), store, {
     readQuota: async () => rawQuota(25),
   }, { now: () => 1_000 });
   const server = createMcpServer(service);
-  const client = new Client({ name: "quota-guard-test", version: "0.1.0" });
+  const client = new Client({ name: "quota-guard-test", version: "0.2.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   try {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    assert.equal(client.getServerVersion()?.version, "0.2.0");
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
       "checkpoint_create",
       "checkpoint_get",
+      "defer_automation_attach",
       "defer_until_reset",
       "job_preflight",
+      "quota_profile",
       "quota_status",
+      "resume_prepare",
     ]);
     const response = await client.callTool({ name: "quota_status", arguments: {} });
     const structured = response.structuredContent as Record<string, unknown>;
     const fiveHour = structured.fiveHour as Record<string, unknown>;
     assert.equal(fiveHour.remainingPercent, 75);
     assert.equal(structured.source, "codex-app-server");
+    assert.equal((structured.profile as Record<string, unknown>).baselineRemainingPercent, 10);
+    const missingId = await client.callTool({ name: "job_preflight", arguments: {
+      workspaceRoot: directory, taskId: "task", jobClass: "small", description: "missing job ID",
+    } });
+    assert.equal(missingId.isError, true);
+    const relativePath = await client.callTool({ name: "job_preflight", arguments: {
+      workspaceRoot: "relative", taskId: "task", jobId: "one", jobClass: "small", description: "invalid path",
+    } });
+    assert.equal(relativePath.isError, true);
+    const job = { workspaceRoot: directory, taskId: "task", jobId: "one", jobClass: "small", description: "inspection" };
+    const first = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
+    const retry = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
+    assert.equal(first.admissionRecorded, true);
+    assert.equal(retry.admissionRecorded, false);
+    const adjustment = await client.callTool({ name: "quota_profile", arguments: { action: "adjust", deltaPercent: -3 } });
+    assert.equal((adjustment.structuredContent as Record<string, unknown>).effectiveThresholdPercent, 7);
+    const reset = (await client.callTool({ name: "quota_profile", arguments: { action: "reset" } })).structuredContent as Record<string, unknown>;
+    assert.equal(reset.effectiveThresholdPercent, 10);
   } finally {
     await client.close();
     await server.close();

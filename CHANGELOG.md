@@ -4,6 +4,30 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-30
+
+### Added
+
+- Runtime ChatGPT plan profiles with passive part-job cost learning and persistent user threshold overrides.
+- Credit/unlimited allowance detection, individual spend-control handling, and arbitrary long-window normalization.
+- Quota-owned defer records, automation attachment, manual-resume cancellation hints, and superseded-heartbeat protection.
+- Model-agnostic `primary`/`secondary` quota roles. A separately labelled reserve bucket can admit lightweight work while the primary role waits.
+
+### Changed
+
+- `job_preflight` now requires stable job, task, and workspace identity and records every non-deferred admission.
+- Configuration uses plan-aware learning defaults instead of the v0.1 fixed warning/defer percentages.
+- MCP public interface is intentionally breaking and now exposes eight tools.
+- Onboarding documentation now covers clone/install, absolute-path registration, verification, role selection, and safe resume behavior.
+
+### Fixed
+
+- Stale reserve/credit snapshots cannot admit work; a primary wait no longer freezes reserve observations.
+- Concurrent calls from the same MCP process no longer reacquire an in-flight refresh lease.
+- Manual supersession and due-heartbeat claiming are atomic; attachment cannot overwrite or reuse another defer's automation ID.
+- Missing mandatory reset times cannot create a misleading resume schedule. Final thresholds are clamped after user overrides.
+- Agent guidance checkpoints at caution and preflights bounded implementation phases before quota can cut off heartbeat creation.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added

@@ -22,7 +22,23 @@ Close quota-guard processes first. Preserve the database for diagnosis, then mov
 
 ## Automation did not run
 
-`defer_until_reset` returns an automation contract; the calling Codex task must create the heartbeat. Confirm the automation targets the original task and uses the exact `resumeAt`/`automationPrompt`. On wake, quota must be checked again.
+`defer_until_reset` returns an automation contract; the calling Codex task must create the heartbeat and call `defer_automation_attach`. Confirm it targets the original task and uses the exact `resumeAt`/`automationPrompt`. The prompt must call `resume_prepare(trigger="automation")` first.
+
+Distinguish three failures: no checkpoint (defer was never called or storage failed), checkpoint with no attached ID (creation/attachment was missed or rejected), and an attached heartbeat with no observed execution (host scheduler/runtime issue). An ACTIVE schedule alone is not proof it fired. Check host execution history, app/machine availability and whether the turn hit an upstream usage limit. Do not change unrelated automations while investigating.
+
+An observed early-development incident reached preflight at only 1% remaining: checkpoint creation succeeded, then the turn failed with a usage-limit error before any automation-create call. The durable checkpoint survived, but the heartbeat was never created. This supports checking bounded implementation phases earlier, not treating time until reset as spare quota. The guard is advisory; no threshold can guarantee there is enough usage left for an unbounded turn.
+
+## Reserve/secondary allowance is missing
+
+The guard reports a usable secondary capability only when `account/rateLimits/read` supplies a recognized reserve bucket. The adapter currently recognizes the observed ID `base_model_inference`; callers select roles instead of depending on this ID or a display name. If the marker changes, an unlabelled bucket is not treated as interchangeable. Upgrade Codex and inspect `quota_status`; do not guess by model name or copy credentials. `available=true` means detected; obey preflight to determine whether it can actually admit work.
+
+If `lanes.primary` is exhausted and `lanes.secondary` reports remaining allowance, use `sessionRole="lightweight"` (or `laneId="secondary"`) for small work. The primary task must continue to wait for `laneId="primary"`.
+
+If the user resumed manually, call `resume_prepare(trigger="manual")` and best-effort delete only the returned automation IDs. The MCP never enumerates or cancels unrelated automations. If deletion fails, the superseded heartbeat safely exits when it later wakes.
+
+## Profile threshold seems too high
+
+Call `quota_profile` with `action: "get"` and inspect baseline, rolling mean, sample count, and override. Passive learning can be conservative when other Codex or shared agentic clients consume usage without calling `job_preflight`. Use `adjust` with a negative delta to lower the threshold, or `reset` to remove the persistent account-plan override.
 
 ## Node SQLite warning
 
