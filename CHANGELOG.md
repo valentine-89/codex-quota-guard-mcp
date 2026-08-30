@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Documentation
+
+- Record the successful real early-recovery heartbeat after an account switch:
+  automatic scheduler advancement, early task wake, quota revalidation and owned
+  heartbeat cleanup. Distinguish bounded MCP-harness acceptance from unverified
+  desktop reconnection, indefinite idle lifetime and sleep/restart behavior.
+
 ## [0.3.0] - 2026-08-30
 
 ### Added

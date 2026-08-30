@@ -1,6 +1,6 @@
 # Token-free scheduler bridge investigation
 
-Status: **bridge mutation verified on Windows; WSL-to-Windows inventory verified; v0.3 timer integrated, full live recovery acceptance tracked separately**. See [monitor setup](MONITOR.md).
+Status: **v0.3 production timer, Windows scheduler advancement, real early task wake and cleanup verified; WSL-to-Windows inventory verified**. See [monitor setup and exact acceptance boundary](MONITOR.md).
 Date: 2026-08-30. Tested CLI 0.147.0, desktop 26.825.5331.0, bundled
 `codex-app-tools` plugin 0.1.3 (MCP handshake version 0.1.0).
 
@@ -134,8 +134,12 @@ as unavailable; do not switch to token-consuming polling or private state writes
 The v0.3 implementation adds the shared five-minute timer, fenced early-wake state,
 ownership-checked scheduler adapter, and fast local cleanup. Automated tests cover
 competing SQLite connections, account changes, backoff, manual-resume races and
-uncertain scheduler acknowledgments. A controlled real recovery/wake test and
-idle/sleep/desktop-restart coverage must be reported separately from unit tests.
+uncertain scheduler acknowledgments. The controlled account-switch recovery test
+received a real heartbeat at04:04:17.529Z, before the original05:22:30Z checkpoint
+boundary, with successful quota revalidation and owned-heartbeat deletion. A
+bounded SDK connection kept MCP alive; desktop reconnection, indefinite idle
+lifetime and sleep/restart coverage remain separate, unverified claims. See the
+[acceptance timeline](MONITOR.md#real-early-wake-after-account-switch).
 
 ### Windows/WSL follow-up
 

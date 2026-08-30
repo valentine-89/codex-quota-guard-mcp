@@ -135,6 +135,12 @@ See [monitor setup and limitations](docs/MONITOR.md). This optional feature requ
 
 Monitoring stops when all MCP processes exit, the app closes or the computer sleeps. No Windows service, Linux daemon or token-consuming polling heartbeat is installed. Earlier scheduler delivery is best-effort, not an exact two-minute guarantee.
 
+A controlled live account-switch test verified automatic advancement, actual task
+wake about78 minutes before its old resume boundary, quota revalidation and
+heartbeat cleanup. An SDK harness kept MCP alive for this test; automatic desktop
+reconnection and sleep/restart behavior remain unverified. See the
+[acceptance timeline](docs/MONITOR.md#real-early-wake-after-account-switch).
+
 ## Configuration
 
 Defaults require no configuration. To customize plan baselines, learning, a shorter automation ceiling (maximum 24 hours), or refresh behavior, set `CODEX_QUOTA_GUARD_CONFIG` to an absolute JSON file conforming to [`examples/config.schema.json`](examples/config.schema.json). v0.1 `warningRemainingPercent` and `deferRemainingPercent` are intentionally unsupported in v0.2. `CODEX_QUOTA_GUARD_STATE_DIR` selects the state directory unless `stateDir` is explicitly configured.

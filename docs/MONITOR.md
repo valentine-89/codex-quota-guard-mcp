@@ -52,6 +52,41 @@ The app, computer and at least one guard MCP connection must remain alive. Sleep
 - A real stdio MCP subprocess with isolated quota/scheduler fixtures advanced its attached heartbeat without any client quota-tool call. This proves internal timer dispatch, not delivery by the live desktop scheduler.
 - Isolated live app-server/handshake: eight tools, server0.3.0, fresh ChatGPT Plus quota, both quota roles detected.
 - Newly opened SDK connections using the locally registered Windows launcher, directly and through WSL interop: server0.3.0 and `monitor.available=true`.
-- Actual account switch changed the observed primary allowance from9% to99%; the existing heartbeat was created with v0.1 and has no attached defer record. Conversion and real early-wake delivery are not yet accepted.
+- Actual account switch changed the observed primary allowance from9% to99%. With explicit user authorization, one existing v0.1 heartbeat was linked to a new defer while preserving its task, checkpoint and original resume boundary. The production monitor then advanced it and the real desktop heartbeat woke the task early; details below.
 - Six identified older Quota Guard processes were stopped at the user's request. The existing task tool connection then returned `Transport closed`; automatic desktop reconnection was not observed. Updating files does not hot-reload an already-running MCP. Open a fresh connection/task or reload MCP through available app controls; a standalone smoke connection is not evidence of automatic reconnection.
 - Full idle lifetime, desktop restart and sleep/wake delivery remain unverified.
+
+### Real early wake after account switch
+
+All timestamps below are UTC on 2026-08-30 (local test timezone UTC+07:00).
+
+| Event | Timestamp / result |
+| --- | --- |
+| Original checkpoint resume boundary | 05:22:30.000 |
+| Monitor's scheduler advancement observed | 04:01:10.995; outbox `scheduled`, no error |
+| Actual incoming desktop heartbeat | 04:04:17.529 |
+| Resume validation and marker persisted | 04:04:25.039; `canResume=true`, `shouldExit=false`, primary remaining79% |
+| Cleanup verified | Defer `fired`, heartbeat file absent, pending monitor records0; bounded watcher exited successfully |
+
+The incoming heartbeat arrived **78 minutes 12 seconds before the original checkpoint
+resume boundary**, approximately **3 minutes 7 seconds after advancement was
+observed**. The schedule was advanced from115 minutes to2 minutes by the monitor,
+not by a manual agent reschedule call. Setup changed only the legacy prompt to the
+new defer contract before attachment; the original interval was preserved until
+the internal timer dispatched the update. No reset credit was consumed, and no
+auth file or scheduler database was edited.
+
+This was a real scheduler invocation, not a manually executed wake marker. It
+revalidated quota via a fresh registered MCP connection and deleted only the
+owned test heartbeat. No periodic model invocation was used to inspect quota;
+the actual resumed task consumed ordinary model usage.
+
+**Acceptance boundary:** a bounded SDK harness kept the registered Windows MCP's
+stdio connection alive (maximum10 minutes) and observed guard state locally. The
+task was idle between setup completion and heartbeat delivery. This validates
+production timer → shipped scheduler → actual task wake → resume validation and
+cleanup. It does not prove that desktop automatically reconnects a killed MCP,
+keeps every MCP alive indefinitely, or delivers within exactly2 minutes. Because
+conversion occurred after account switching, automatic detection across an
+unattended live logout/login transition was not exercised; account-transition
+eligibility and five-minute cadence are additionally covered by automated tests.
