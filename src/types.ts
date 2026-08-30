@@ -1,6 +1,6 @@
 export type QuotaRecommendation = "continue" | "caution" | "checkpoint_and_defer";
 export type QuotaSource = "codex-app-server" | "cache" | "unavailable";
-export type QuotaPath = "included" | "credits" | "unavailable";
+export type QuotaPath = "included" | "credits" | "weekly_advisory" | "unavailable";
 export type JobClass = "small" | "medium" | "long";
 export type JobDecision = "allow" | "caution" | "defer";
 export type LearningConfidence = "cold_start" | "low" | "ready";
@@ -32,6 +32,7 @@ export interface QuotaBucket {
 }
 
 export interface PolicyProfile {
+  policyMode: "adaptive" | "weekly_only";
   planGroup: "free_go" | "standard" | "pro" | "flexible" | "unknown";
   baselineRemainingPercent: number;
   learnedMeanPercent: number | null;

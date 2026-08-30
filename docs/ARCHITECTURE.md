@@ -6,11 +6,11 @@
 - `QuotaGuardService` applies cache, lease, backoff, plan profiles, passive learning, admission, and defer/resume policies.
 - `StateStore` owns additive v0.2 SQLite persistence for cache/checkpoints plus samples, account-plan overrides, idempotent admissions, and quota-owned defer records.
 - `mcp-server` exposes eight bounded tools over stdio or opt-in shared HTTP.
-- `createRuntime` owns the shared service/store/monitor construction. The experimental
+- `createRuntime` owns the shared service/store/monitor construction. Managed
   `http-main` holds a separate exclusive ownership lock, starts the monitor without
   client initialization and uses `http-server` request-scoped protocol resources.
   `http-connector` is a wire adapter with no SQLite or policy instances. See
-  [shared HTTP ownership, limits and acceptance boundaries](SHARED_HTTP.md).
+  [managed ownership and recovery](MANAGED_CORE.md).
 - `ProcessLifetime` owns stream/transport shutdown, a local parent-existence check,
   a60-second initialization deadline and a5-second shutdown ceiling. It terminates
   only its own MCP instance, never evicts a healthy initialized idle session, and
@@ -24,14 +24,14 @@
 3. Return a stale snapshot while shared backoff is active.
 4. Atomically acquire a refresh lease. Non-owners return cache with `refreshInProgress=true`.
 5. Start `codex app-server --stdio`, send `initialize`, `account/read`, and `account/rateLimits/read`; re-read account metadata and reject an observed account change.
-6. Normalize the active bucket, explicitly labelled secondary/reserve buckets, credits, spend controls, and arbitrary long windows; feed a valid fresh five-hour delta into passive learning.
+6. Normalize the active bucket, explicitly labelled secondary/reserve buckets, credits, spend controls, and arbitrary long windows; feed a valid fresh five-hour delta into passive learning. An exact weekly-only primary uses a3% warning/defer profile and no five-hour samples.
 7. Decorate the snapshot with the current account-plan profile, store it, clear backoff, and release the lease.
 
 The cache profile key is derived from the normalized Codex home. The account fingerprint is a SHA-256 hash of account type and normalized email. It scopes overrides, admissions and learning; the email itself is never persisted. Missing account identity prevents a recorded admission or profile mutation. An account/plan change invalidates pending intervals and never reuses another profile's mean or override.
 
 ## Admission learning
 
-Each non-deferred `job_preflight` inserts an idempotent admission keyed by profile, account, plan, role/limit bucket, and caller job ID. Pending admissions accumulate until a later fresh snapshot reports a positive five-hour delta. The delta is divided by the pending count and stored in a 20-observation rolling mean. Homogeneous intervals also update the matching job-class mean; mixed intervals update only the global mean. Reset epochs and identity changes isolate samples automatically. Secondary buckets with only weekly/long windows are admitted from that window but do not fabricate a five-hour learning sample.
+Each non-deferred `job_preflight` inserts an idempotent admission keyed by profile, account, plan, role/limit bucket, and caller job ID. Pending admissions accumulate until a later fresh snapshot reports a positive five-hour delta. The delta is divided by the pending count and stored in a 20-observation rolling mean. Homogeneous intervals also update the matching job-class mean; mixed intervals update only the global mean. Reset epochs and identity changes isolate samples automatically. Secondary long-only and primary weekly-only buckets never fabricate a five-hour learning sample. Weekly-only quota at/below its threshold defers only for a confirmed reset strictly under24 hours; otherwise `weekly_advisory` warns without a Guard stop or monitor wake.
 
 ## Defer ownership
 

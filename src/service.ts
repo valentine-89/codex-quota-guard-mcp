@@ -5,6 +5,8 @@ import {
   buildPolicyProfile,
   creditsUsable,
   allowanceWindow,
+  isWeeklyOnly,
+  weeklyResetSoon,
   normalizeRateLimits,
   preflightLane,
   quotaPathFor,
@@ -98,12 +100,12 @@ export class QuotaGuardService {
 
   private profileFor(snapshot: QuotaSnapshot, fingerprint: string | null, jobClass: JobClass | null, bucket = snapshot.activeBucket): PolicyProfile {
     const identity = this.identity(snapshot, fingerprint, bucket);
-    if (!identity) return buildPolicyProfile(snapshot.planType, null, 0, 0, jobClass, this.config);
+    if (!identity) return buildPolicyProfile(snapshot.planType, null, 0, 0, jobClass, this.config, isWeeklyOnly(bucket));
     const learning = bucket?.fiveHour
       ? this.store.getLearning(identity, jobClass, this.config.sampleWindow, this.config.minSamples)
       : { mean: null, count: 0 };
     const override = this.store.getOverride(this.key, identity.fingerprint, identity.planType);
-    return buildPolicyProfile(snapshot.planType, learning.mean, learning.count, override, jobClass, this.config);
+    return buildPolicyProfile(snapshot.planType, learning.mean, learning.count, override, jobClass, this.config, isWeeklyOnly(bucket));
   }
 
   private decorate(snapshot: QuotaSnapshot, fingerprint: string | null, jobClass: JobClass | null = null): QuotaSnapshot {
@@ -116,7 +118,7 @@ export class QuotaGuardService {
       const entry = source[laneId];
       const bucket = entry?.bucket ?? null;
       const profile = this.profileFor(snapshot, fingerprint, jobClass, bucket);
-      const path = snapshot.stale || snapshot.refreshInProgress ? "unavailable" : quotaPathFor(bucket, profile.effectiveThresholdPercent);
+      const path = snapshot.stale || snapshot.refreshInProgress ? "unavailable" : quotaPathFor(bucket, profile.effectiveThresholdPercent, this.config, this.now());
       lanes[laneId] = {
         laneId,
         detection: bucket
@@ -126,20 +128,21 @@ export class QuotaGuardService {
         bucket,
         window: allowanceWindow(bucket),
         quotaPath: path,
-        recommendation: path === "unavailable" ? "checkpoint_and_defer" : recommendationFor(bucket, profile, this.config),
+        recommendation: path === "unavailable" ? "checkpoint_and_defer" : recommendationFor(bucket, profile, this.config, this.now()),
         mayConsumeCredits: path === "credits",
         profile,
-        reason: bucket ? null : "No explicit app-server bucket was reported for this lane.",
+        reason: path === "weekly_advisory" ? "Weekly quota is low; reset is not under24h. Warning only; backend limits still apply."
+          : bucket ? null : "No explicit app-server bucket was reported for this lane.",
       };
     }
     const activeLane = lanes[snapshot.activeBucket?.laneId ?? "primary"] ?? lanes.primary;
     const profile = activeLane?.profile ?? this.profileFor(snapshot, fingerprint, jobClass);
-    const quotaPath = snapshot.stale || snapshot.refreshInProgress ? "unavailable" : quotaPathFor(snapshot.activeBucket, profile.effectiveThresholdPercent);
+    const quotaPath = snapshot.stale || snapshot.refreshInProgress ? "unavailable" : quotaPathFor(snapshot.activeBucket, profile.effectiveThresholdPercent, this.config, this.now());
     return {
       ...snapshot,
       lanes,
       profile,
-      recommendation: quotaPath === "unavailable" ? "checkpoint_and_defer" : recommendationFor(snapshot.activeBucket, profile, this.config),
+      recommendation: quotaPath === "unavailable" ? "checkpoint_and_defer" : recommendationFor(snapshot.activeBucket, profile, this.config, this.now()),
       quotaPath,
       mayConsumeCredits: quotaPath === "credits",
     };
@@ -199,6 +202,7 @@ export class QuotaGuardService {
       // A usable secondary role keeps the shared cache observable while primary sleeps.
       // Never cache past a reported boundary without revalidation after reset grace.
       for (const bucket of roleBuckets) {
+        if (isWeeklyOnly(bucket ?? null)) ttl = Math.min(ttl, MONITOR_INTERVAL_MS);
         if (creditsUsable(bucket ?? null)) ttl = Math.min(ttl, this.config.ttlMs.warning);
         for (const window of [bucket?.fiveHour, ...(bucket?.longWindows ?? []), bucket?.individualLimit]) {
           if (!window?.resetsAt) continue;
@@ -279,7 +283,9 @@ export class QuotaGuardService {
       || !snapshot.lanes[defer.laneId]?.bucket) return false;
     const checkpoint = this.getCheckpoint(defer.workspaceRoot, defer.taskId, defer.checkpointId);
     const jobClass = checkpoint?.jobClass ?? (defer.laneId === "secondary" ? "small" : "long");
-    return preflightLane(this.decorate(snapshot, cache.accountFingerprint, jobClass), jobClass, this.config, defer.laneId).decision !== "defer";
+    const admission = preflightLane(this.decorate(snapshot, cache.accountFingerprint, jobClass), jobClass, this.config, defer.laneId, this.now());
+    // Warning-only execution is not replenished quota and must not advance a schedule.
+    return admission.decision !== "defer" && admission.quotaPath !== "weekly_advisory";
   }
 
   async jobPreflight(input: JobPreflightInput): Promise<JobPreflightResult> {
@@ -293,7 +299,7 @@ export class QuotaGuardService {
     const cache = this.store.getCache(this.key);
     const quota = this.decorate(status, cache?.accountFingerprint ?? null, input.jobClass);
     const laneId = input.laneId ?? (input.sessionRole === "lightweight" ? "secondary" : "primary");
-    let result = preflightLane(quota, input.jobClass, this.config, laneId);
+    let result = preflightLane(quota, input.jobClass, this.config, laneId, this.now());
     const laneBucket = quota.lanes[laneId]?.bucket ?? null;
     const identity = this.identity(quota, cache?.accountFingerprint ?? null, laneBucket);
     const laneWindow = allowanceWindow(laneBucket);
@@ -332,6 +338,7 @@ export class QuotaGuardService {
     const lane = quota.lanes[laneId];
     const bucket = lane?.bucket ?? null;
     if (quota.stale || !bucket || creditsUsable(bucket)) return null;
+    if (isWeeklyOnly(bucket) && !weeklyResetSoon(bucket, this.config, this.now())) return null;
     const allowance = allowanceWindow(bucket);
     const reachedType = bucket.rateLimitReachedType ?? "";
     const individualExhausted = bucket.individualLimit?.remainingPercent === 0;
@@ -353,7 +360,7 @@ export class QuotaGuardService {
 
   async deferUntilReset(payload: CheckpointPayload): Promise<{
     deferId: string; defer: StoredDefer; checkpoint: StoredCheckpoint; resumeAt: string | null; canSchedule: boolean;
-    reason: "scheduled" | "reset_too_far" | "reset_unknown"; automationPrompt: string; quota: QuotaSnapshot;
+    reason: "scheduled" | "reset_too_far" | "reset_unknown" | "advisory_only"; automationPrompt: string; quota: QuotaSnapshot;
   }> {
     if (!payload.taskId) throw new Error("taskId is required for defer_until_reset in v0.2");
     const status = await this.quotaStatus();
@@ -368,7 +375,8 @@ export class QuotaGuardService {
     this.store.monitor.enroll(this.key, defer.id, observedIdentity ?? { fingerprint: null, planType: null, limitId: null }, this.now());
     const canSchedule = resumeAtMs !== null && resumeAtMs > this.now()
       && resumeAtMs - this.now() <= this.config.maxAutomationWaitMs;
-    const reason = resumeAtMs === null ? "reset_unknown" : canSchedule ? "scheduled" : "reset_too_far";
+    const reason = quota.lanes[laneId]?.quotaPath === "weekly_advisory" ? "advisory_only"
+      : resumeAtMs === null ? "reset_unknown" : canSchedule ? "scheduled" : "reset_too_far";
     const automationPrompt = [
       `Resume quota-guard ${laneId} defer ${defer.id} from checkpoint ${checkpoint.id}.`,
       `First call resume_prepare with trigger "automation", workspaceRoot ${JSON.stringify(checkpoint.workspaceRoot)}, taskId ${JSON.stringify(payload.taskId)}, laneId "${laneId}", and deferId "${defer.id}".`,
@@ -416,7 +424,7 @@ export class QuotaGuardService {
     const jobClass = checkpoint?.jobClass ?? (laneId === "secondary" ? "small" : "long");
     const identitySafe = !!current?.accountFingerprint && current.snapshot.fetchedAt === quota.fetchedAt;
     const canResume = identitySafe && !quota.stale && !quota.refreshInProgress && !quota.error
-      && preflightLane(this.decorate(quota, current.accountFingerprint, jobClass), jobClass, this.config, laneId).decision !== "defer";
+      && preflightLane(this.decorate(quota, current.accountFingerprint, jobClass), jobClass, this.config, laneId, this.now()).decision !== "defer";
     return { ...prepared, cancellationBestEffort: true, quota, canResume, laneId };
   }
 

@@ -7,7 +7,7 @@ Checkpoints are local SQLite records keyed by Codex profile, canonical workspace
 1. Split work into bounded phases and call `job_preflight` before each one, including code editing/research. Save a checkpoint on `caution`; do not wait until 0%.
 2. If it returns `defer`, immediately call `defer_until_reset` with current state, actual task ID, and the same `laneId`/`jobClass`. Do not spend the remaining safety margin on more investigation first.
 3. The tool always stores a checkpoint and quota-owned defer record. `resumeAt` is the latest reset among all blocking constraints for the selected quota role plus grace. Pass `laneId="primary"` for main work or `laneId="secondary"` for an explicitly available reserve lane.
-4. Create a same-task heartbeat only when `canSchedule=true` (reset no more than 24 hours away), then call `defer_automation_attach` with the returned `deferId` and created automation ID.
+4. Create a same-task heartbeat only when `canSchedule=true` (blocking reset strictly under24 hours after grace), then call `defer_automation_attach` with the returned `deferId` and created automation ID. A weekly-only `weekly_advisory` caution requires neither defer nor automation.
 5. On automation wake, call `resume_prepare(trigger="automation")` with workspace, task, role and defer ID first. Exit immediately when `shouldExit=true`; otherwise require `canResume=true` for the selected role. A due wake claims the defer once. If still blocked, defer again on that role; best-effort delete the completed heartbeat.
 6. On a user-requested manual resume, call `resume_prepare(trigger="manual")` before checking quota. Best-effort delete only the returned `automationIdsToCancel`; the defer is already superseded so a surviving heartbeat cannot resume work.
 7. Call `checkpoint_get`, inspect current repository state, and preflight only pending work. Admission is not a reservation of tokens or a guarantee a command can finish.
@@ -16,7 +16,7 @@ Manual resume is role-scoped: superseding a secondary defer does not cancel a pr
 
 With the optional [v0.3 monitor](MONITOR.md), verified external recovery (including another signed-in account with sufficient quota) can advance an attached heartbeat. Its claimed early wake is allowed before `resumeAt`, but still revalidates the current account's own policy. Attachment captures the original automation definition; later user edits are not adopted by retrying attach. Missing scheduler capability or an unverifiable definition leaves the original schedule intact. Superseded/fired accelerated heartbeats are also cleaned on local timer ticks without quota reads.
 
-When the backend supplies no reset timestamp, `canSchedule` is false and `resumeAt` is null. A reset farther than 24 hours remains visible on the checkpoint, but `canSchedule` is false. The tool does not invent a reset time.
+When the backend supplies no reset timestamp, `canSchedule` is false and `resumeAt` is null. A weekly-only reset at least24 hours away is warning-only: continue without a Guard stop, checkpoint requirement or automation. Other blocked constraints beyond the ceiling retain the checkpoint but cannot schedule. The tool does not invent a reset time.
 
 Checkpoint text is redacted for common key, bearer, token, and JWT patterns, but callers must still avoid supplying secrets or full model transcripts.
 

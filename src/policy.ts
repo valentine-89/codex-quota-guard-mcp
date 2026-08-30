@@ -85,6 +85,10 @@ function normalizeIndividualLimit(raw: RawRateLimitSnapshot["individualLimit"]):
 }
 
 export function normalizeBucket(raw: RawRateLimitSnapshot, key: string | null = null): QuotaBucket {
+  // A malformed reported 5h window must not become apparent weekly-only capability.
+  for (const window of [raw.primary, raw.secondary]) {
+    if (window != null && normalizeWindow(window) === null) throw new Error("Invalid reported quota window");
+  }
   const windows = [normalizeWindow(raw.primary), normalizeWindow(raw.secondary)].filter(
     (window): window is QuotaWindow => window !== null,
   );
@@ -154,13 +158,16 @@ export function buildPolicyProfile(
   userOverridePercent: number,
   jobClass: JobClass | null,
   config: GuardConfig,
+  weeklyOnly = false,
 ): PolicyProfile {
-  const baseline = baselineForPlan(planType, config);
+  if (weeklyOnly) { learnedMeanPercent = null; sampleCount = 0; }
+  const baseline = weeklyOnly ? config.weeklyOnlyRemainingPercent : baselineForPlan(planType, config);
   const ready = learnedMeanPercent !== null && sampleCount >= config.minSamples;
-  const automatic = ready
+  const automatic = ready && learnedMeanPercent !== null
     ? Math.max(baseline, Math.ceil(learnedMeanPercent * config.safetyFactor))
     : baseline;
   return {
+    policyMode: weeklyOnly ? "weekly_only" : "adaptive",
     planGroup: planGroupFor(planType),
     baselineRemainingPercent: baseline,
     learnedMeanPercent,
@@ -184,10 +191,26 @@ export function allowanceWindow(bucket: QuotaBucket | null): QuotaWindow | null 
   return bucket?.fiveHour ?? bucket?.longWindows.slice().sort((a, b) => a.windowDurationMins - b.windowDurationMins)[0] ?? null;
 }
 
+/** Observed primary weekly-only allowance, not a missing/unknown quota response. */
+export function isWeeklyOnly(bucket: QuotaBucket | null): boolean {
+  return bucket?.laneId === "primary" && bucket.fiveHour === null && bucket.weekly !== null
+    && bucket.longWindows.length === 1 && bucket.longWindows[0]?.windowDurationMins === WEEKLY_MINUTES;
+}
+
+function weeklyControlsClear(bucket: QuotaBucket): boolean {
+  return bucket.spendControlReached !== true && bucket.individualLimit?.remainingPercent !== 0
+    && (bucket.rateLimitReachedType === null || bucket.rateLimitReachedType === "rate_limit_reached");
+}
+
+export function weeklyResetSoon(bucket: QuotaBucket, config: GuardConfig, nowMs: number): boolean {
+  const reset = Date.parse(bucket.weekly?.resetsAt ?? "");
+  const wait = reset + config.resetGraceMs - nowMs;
+  // The user requests strictly under24h; include grace so the actual wake fits.
+  return Number.isFinite(reset) && reset > nowMs && wait > 0 && wait < config.maxAutomationWaitMs;
+}
+
 function includedUsable(bucket: QuotaBucket | null, threshold: number): boolean {
-  // Only the explicitly identified reserve supports a long-only included window.
-  // A primary long window alone does not establish permission to bypass 5h.
-  if (!bucket || (!bucket.fiveHour && bucket.laneId !== "secondary")) return false;
+  if (!bucket || (!bucket.fiveHour && bucket.laneId !== "secondary" && !isWeeklyOnly(bucket))) return false;
   const allowance = allowanceWindow(bucket);
   if (!allowance || allowance.remainingPercent <= threshold) return false;
   if (bucket.longWindows.some((window) => window.remainingPercent <= 0)) return false;
@@ -195,16 +218,18 @@ function includedUsable(bucket: QuotaBucket | null, threshold: number): boolean 
   return bucket.rateLimitReachedType === null;
 }
 
-export function quotaPathFor(bucket: QuotaBucket | null, threshold: number): QuotaPath {
+export function quotaPathFor(bucket: QuotaBucket | null, threshold: number, config?: GuardConfig, nowMs = Date.now()): QuotaPath {
   if (includedUsable(bucket, threshold)) return "included";
   if (creditsUsable(bucket)) return "credits";
+  if (bucket && isWeeklyOnly(bucket) && weeklyControlsClear(bucket)
+    && config && !weeklyResetSoon(bucket, config, nowMs)) return "weekly_advisory";
   return "unavailable";
 }
 
-export function recommendationFor(bucket: QuotaBucket | null, profile: PolicyProfile, config: GuardConfig): QuotaRecommendation {
-  const path = quotaPathFor(bucket, profile.effectiveThresholdPercent);
+export function recommendationFor(bucket: QuotaBucket | null, profile: PolicyProfile, config: GuardConfig, nowMs = Date.now()): QuotaRecommendation {
+  const path = quotaPathFor(bucket, profile.effectiveThresholdPercent, config, nowMs);
   if (path === "unavailable") return "checkpoint_and_defer";
-  if (path === "credits") return "caution";
+  if (path === "credits" || path === "weekly_advisory") return "caution";
   const remaining = allowanceWindow(bucket)?.remainingPercent ?? 0;
   return remaining <= profile.effectiveThresholdPercent + config.cautionMarginPercent ? "caution" : "continue";
 }
@@ -228,7 +253,7 @@ export function preflightJob(snapshot: QuotaSnapshot, jobClass: JobClass, config
   return preflightLane(snapshot, jobClass, config, "primary");
 }
 
-export function preflightLane(snapshot: QuotaSnapshot, jobClass: JobClass, config: GuardConfig, laneId: QuotaLaneId): JobPreflightResult {
+export function preflightLane(snapshot: QuotaSnapshot, jobClass: JobClass, config: GuardConfig, laneId: QuotaLaneId, nowMs = Date.now()): JobPreflightResult {
   const lane = snapshot.lanes[laneId];
   if (snapshot.stale || snapshot.refreshInProgress || (laneId === "secondary" && jobClass !== "small")) {
     return {
@@ -252,8 +277,16 @@ export function preflightLane(snapshot: QuotaSnapshot, jobClass: JobClass, confi
   }
   const bucket = lane.bucket;
   const profile = lane.profile;
-  const path = quotaPathFor(bucket, profile.effectiveThresholdPercent);
+  const path = quotaPathFor(bucket, profile.effectiveThresholdPercent, config, nowMs);
   const remaining = allowanceWindow(bucket)?.remainingPercent ?? null;
+  if (path === "weekly_advisory") {
+    return {
+      decision: "caution", reason: `Weekly quota is near exhaustion (${remaining}% remaining); no confirmed reset under24h. Guard admission is warning-only, not proof of backend allowance.`,
+      requiredAction: "May continue without a Guard-imposed stop or automation. Backend quota limits still apply; checkpointing is optional for this warning.",
+      admissionRecorded: false, quotaPath: path, mayConsumeCredits: false,
+      thresholdPercent: profile.effectiveThresholdPercent, quota: snapshot, laneId,
+    };
+  }
   if (path === "unavailable") {
     return {
       decision: "defer",
@@ -289,7 +322,9 @@ export function preflightLane(snapshot: QuotaSnapshot, jobClass: JobClass, confi
     reason: caution
       ? `${remaining}% remains, close to the ${profile.effectiveThresholdPercent}% learned admission threshold.`
       : `The selected included allowance admits this ${jobClass} job.`,
-    requiredAction: caution ? "Keep the job bounded and resumable." : null,
+    requiredAction: caution ? isWeeklyOnly(bucket)
+      ? "Weekly quota warning only; may continue. No checkpoint or automation is required for this warning."
+      : "Keep the job bounded and resumable." : null,
     admissionRecorded: false,
     quotaPath: path,
     mayConsumeCredits: false,

@@ -1,8 +1,9 @@
 # Managed shared core deployment
 
-Implementation added after v0.4.0. Default migration has been authorized for the
-development installation, but remains pending production live acceptance. Do not
-interpret unit tests as proof of a desktop restart or real automation wake.
+Version0.5 managed deployment is the recommended Windows-hosted route for Windows
+and WSL callers. It keeps the local service/store/monitor singleton while retaining
+bounded wire connectors per stdio task. Do not interpret connection smokes as proof
+of a desktop restart, reboot, sleep/wake or real automation wake.
 
 ## Installation (Windows host, also for WSL callers)
 
@@ -82,7 +83,8 @@ config over later user edits.
 
 ## Evidence and remaining acceptance
 
-2026-08-30: Windows and isolated native WSL `npm run check` passed82 tests. New
+Initial managed acceptance on2026-08-30 passed82 tests; v0.5 weekly-only coverage
+raised the Windows and isolated native WSL suite to91 passing tests. Managed tests
 coverage proves six concurrent bootstrap requests, crash/lock recovery, wrong
 listener rejection, private settings validation, bounded authenticated binding,
 and serialized capability replacement using fixtures. Windows provisioning applied
@@ -94,8 +96,15 @@ core, preserved unrelated Codex configuration/comments, and kept the secret out
 of that config. It removed its own supervisor/core/state afterwards. ACL updates
 modify only DACL, avoiding an unnecessary audit/owner privilege on reinstallation.
 
-Still pending: production registration switch, live capability binding via managed
-endpoint, and Windows/WSL fresh-client
-smoke. Reboot, actual desktop restart, sleep/wake and a real early heartbeat through
-the managed core are not established by these tests. Prior v0.3 real-wake evidence
-must remain separate.
+Production acceptance on2026-08-30 switched the registered launcher without closing
+existing sessions, bound the real desktop scheduler capability, and restarted only
+the authenticated installation-owned core after the v0.5 build. Fresh Windows and
+Windows-hosted WSL clients both reported v0.5.0, the same weekly-only snapshot,
+`runtimeMode=shared-http`, `requiresLiveClientConnection=false`, and monitor available.
+The per-user supervisor ran again with least privilege and retained the same healthy
+PID. Reboot, actual desktop restart, sleep/wake and a real early heartbeat through the
+managed core are not yet established. Prior v0.3 real-wake evidence remains separate.
+One later repeat found the distro's own `WSLInterop` binfmt entry absent, so even a
+plain Windows `cmd.exe` could not start; the distro was not forcibly restarted. See
+[troubleshooting](TROUBLESHOOTING.md) and keep this host failure distinct from the
+earlier successful v0.5 Windows-hosted WSL connection and final native-Linux tests.

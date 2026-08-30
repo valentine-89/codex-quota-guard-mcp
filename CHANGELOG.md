@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-30
+
 ### Added
 
 - Managed shared-core bootstrap using protected local settings, authenticated health
@@ -13,8 +15,17 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - In-memory desktop capability renewal through a bounded authenticated endpoint,
   verified with the shipped scheduler server and serialized with active dispatch.
 - Explicit managed installer preserving other Codex configuration and existing
-  sessions; production migration and live capability acceptance remain pending.
-- Four managed regression tests, passing with the82-test Windows/WSL suite.
+  sessions; production migration and live scheduler binding were accepted.
+- Primary weekly-only policy with a configurable2–5% baseline (default3%), no
+  five-hour learning, strict-under24h scheduling, and warning-only free continuation
+  for farther/unknown resets. Stale quota and mandatory spend limits remain fail-safe.
+- Managed and weekly-only regressions; the91-test suite passes on Windows. Fresh
+  registered Windows and Windows-hosted WSL clients share the v0.5 core and snapshot.
+
+### Acceptance boundary
+
+- Reboot, full desktop restart, sleep/wake and a real managed-core early heartbeat
+  remain unverified. The earlier v0.3 real wake is separate evidence.
 
 ## [0.4.0] - 2026-08-30
 

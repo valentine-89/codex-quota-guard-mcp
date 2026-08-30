@@ -6,6 +6,7 @@
   "minSamples": 3,
   "safetyFactor": 1.5,
   "maxThreshold": 50,
+  "weeklyOnlyRemainingPercent": 3,
   "cautionMarginPercent": 5,
   "maxAutomationWaitMs": 86400000,
   "manualResumeMinAgeMs": 60000,

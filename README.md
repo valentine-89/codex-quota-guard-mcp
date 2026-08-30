@@ -1,24 +1,24 @@
 # Codex Quota Guard MCP
 
-`codex-quota-guard-mcp` is a local Model Context Protocol server that lets concurrent Codex tasks share one adaptive ChatGPT quota snapshot. It detects the current plan and runtime credit capability, learns passive part-job cost, prevents expensive work from starting near exhaustion, and stores resumable checkpoints. Version `0.2.0` also exposes independent `primary` and `secondary` quota roles so a lightweight session can use an explicitly reported reserve allowance while the primary session waits.
+`codex-quota-guard-mcp` is a local Model Context Protocol server that lets concurrent Codex tasks share one adaptive ChatGPT quota snapshot. It detects the current plan and runtime credit capability, learns passive part-job cost, prevents expensive work from starting near exhaustion, and stores resumable checkpoints. It also exposes independent `primary` and `secondary` quota roles and supports accounts whose primary allowance reports only a weekly window.
 
 It does **not** read `auth.json`, copy OAuth tokens, scrape the Codex UI, route model traffic, or send telemetry.
 
 ## How it works
 
 ```text
-Codex tasks ──MCP stdio──> quota guard processes
-                              │
-                              ├── shared SQLite cache/lease/backoff
-                              │
-                              └── one short-lived codex app-server refresh
+Codex tasks ──stdio wire connectors──> one Windows shared HTTP core
+                                          │
+                                          ├── shared SQLite cache/lease/backoff
+                                          │
+                                          └── one short-lived codex app-server refresh
                                       ├── account/read
                                       └── account/rateLimits/read
 ```
 
 The five-hour window is identified by `windowDurationMins = 300`; longer windows are retained without assuming a weekly period or fixed slot order. The active/default bucket supplies `primary`; the separately identified reserve supplies `secondary`. The adapter currently recognizes the observed backend bucket ID `base_model_inference`, not a display/model name. This ID is not a guaranteed public role API: if it changes, unknown buckets remain informational and secondary work fails safe. Public callers use roles, so a model rename alone does not change the contract.
 
-This is an **advisory admission guard**, not a background scheduler or a hard token limit. It cannot stop an in-flight turn, save a checkpoint after the agent loses access, or change the selected model. Install the agent instructions below so checkpoints are written at safe boundaries, before exhaustion.
+This is an **advisory admission guard**, not a hard token limit. It cannot stop an in-flight turn, save a checkpoint after the agent loses access, change the selected model, or override an upstream quota rejection. Its local monitor can advance only quota-guard-owned heartbeats through the supported desktop scheduler bridge.
 
 ## Requirements
 
@@ -41,9 +41,7 @@ tested configurations, workspace path conversion, and scheduler limitations.
 
 ## Install from source
 
-For the shared-core follow-up, see [managed Windows/WSL deployment](docs/MANAGED_CORE.md).
-Its installer and per-user recovery are being verified separately from the stable
-stdio installation below; do not silently change an existing transport or fallback policy.
+For the recommended Windows/WSL shared installation, see [managed deployment](docs/MANAGED_CORE.md). It runs one service/store/monitor core plus lightweight per-connection wire adapters, with no full-process fallback. The direct stdio installation below remains the simple cross-platform route.
 
 ```powershell
 git clone https://github.com/valentine-89/codex-quota-guard-mcp.git
@@ -75,6 +73,16 @@ See [the complete install, upgrade and uninstall guide](docs/GETTING_STARTED.md)
 4. For a long build/test/deploy, call `job_preflight` immediately before starting it. A `defer` result must be checkpointed and deferred; do not start the command.
 
 `lanes.secondary.available` means a bucket was detected, not that it has spendable allowance. A lightweight task uses `jobClass: "small"` and `sessionRole: "lightweight"` (or `laneId: "secondary"`), then obeys the preflight decision. A primary task uses `laneId: "primary"` (the default). A missing or exhausted secondary lane never borrows primary allowance.
+
+### Weekly-only primary allowances
+
+When the active primary bucket reports a valid 10,080-minute weekly window and no 300-minute window, the profile uses `policyMode="weekly_only"`. It does not guess that an absent or malformed window is weekly-only. The default threshold is 3% remaining (configuration range 2–5%, with the normal per-account/plan override still available), and passive five-hour learning is disabled.
+
+- Above 3%: normal admission; the five-point caution band still warns near exhaustion.
+- At/below 3% with a known reset strictly under 24 hours, including reset grace: defer and permit a one-shot heartbeat.
+- At/below 3% with reset 24 hours or farther away, or unknown: return `caution`/`quotaPath="weekly_advisory"`, create no automation, and do not impose a Guard stop. This is warning-only and cannot make OpenAI accept work after the backend allowance is actually exhausted.
+
+Stale/refreshing data, spend control, exhausted individual limits and unknown reached-limit types still fail safe. The monitor never advances an existing heartbeat using a warning-only weekly result.
 
 ## Tools
 
@@ -151,16 +159,15 @@ heartbeat cleanup. An SDK harness kept MCP alive for this test; automatic deskto
 reconnection and sleep/restart behavior remain unverified. See the
 [acceptance timeline](docs/MONITOR.md#real-early-wake-after-account-switch).
 
-## Experimental shared HTTP core (v0.4)
+## Managed shared core (v0.5)
 
-An opt-in [shared HTTP core and wire-only connector](docs/SHARED_HTTP.md) lets many
-clients use one quota service/store/monitor. The core stays alive without client
-connections; it requires an authenticated loopback endpoint and explicit startup.
-Windows and Windows-hosted WSL probes passed with six HTTP clients and a read-only
-desktop dispatch after disconnect. No auto-bootstrap, supervisor or capability
-renewal after desktop restart is installed. **Agents must not silently replace the
-default launcher with this experimental mode.** Existing installations remain stdio
-until an explicit deployment/migration decision.
+The recommended Windows/WSL [managed shared core](docs/MANAGED_CORE.md) keeps one
+quota service/store/monitor alive behind authenticated loopback HTTP. Per-task stdio
+processes are bounded wire adapters only. A least-privilege per-user task checks local
+health at logon/every five minutes without a model call; connectors can also bootstrap
+a missing core and renew the desktop scheduler capability in memory. There is no
+fallback that opens a full Guard process for each task. Direct stdio remains available
+for simple cross-platform installations and is not forcibly closed during migration.
 
 ## Configuration
 

@@ -6,7 +6,7 @@ export function testConfig(stateFile: string): GuardConfig {
     stateDir: stateFile.replace(/[\\/][^\\/]+$/, ""), stateFile,
     codexHome: "C:\\test\\codex-home", codexCommand: "codex",
     planDefaults: { freeGo: 20, standard: 10, pro: 5, unknown: 15 },
-    sampleWindow: 20, minSamples: 3, safetyFactor: 1.5, maxThreshold: 50,
+    sampleWindow: 20, minSamples: 3, safetyFactor: 1.5, maxThreshold: 50, weeklyOnlyRemainingPercent: 3,
     cautionMarginPercent: 5, maxAutomationWaitMs: 86_400_000, manualResumeMinAgeMs: 60_000,
     appServerTimeoutMs: 1_000, leaseDurationMs: 30_000, resetGraceMs: 30_000,
     ttlMs: { high: 900_000, medium: 300_000, warning: 120_000, low: 60_000 },

@@ -1,6 +1,6 @@
 # Five-minute early-recovery monitor
 
-Version 0.3 adds an optional timer inside the stdio MCP process. It reads quota via the official app-server and changes schedules via the installed OpenAI `codex-app-tools` MCP server. Quota checks do not invoke a model. The resumed task itself does consume normal model usage.
+The monitor is a local timer inside the Guard runtime. It reads quota via the official app-server and changes schedules via the installed OpenAI `codex-app-tools` MCP server. Quota checks do not invoke a model. The resumed task itself does consume normal model usage. In managed v0.5, one shared core owns this timer independently of client connections.
 
 ## Agent installation
 
@@ -28,7 +28,7 @@ CODEX_QUOTA_GUARD_SCHEDULER_SERVER = 'C:\actual\installed\codex-app-tools\versio
 - Only newly enrolled, active, attached guard defers are candidates; the timer does not enumerate unrelated automation files. The original automation definition must be captured during attachment with the bridge available. Missing capture or edits after attachment prevent automatic advancement; retrying attachment never adopts a changed definition.
 - A local 15-second tick checks guard state. A durable SQLite lease chooses one quota owner and reserves the next external check at least five minutes later. Crashes cannot trigger a polling herd. Existing refresh leases and backoff remain authoritative.
 - An exhausted cache can be revalidated after five minutes while a candidate waits, even if its normal TTL would last until reset. This is internal; there is no public force refresh.
-- Fresh quota must admit the checkpoint's job class on its original primary/secondary role. A different account/plan is allowed, but statistics and overrides never migrate between accounts.
+- Fresh quota must admit the checkpoint's job class on its original primary/secondary role. A different account/plan is allowed, but statistics and overrides never migrate between accounts. Warning-only `weekly_advisory` never advances a heartbeat because it is not evidence of replenished allowance.
 - Account metadata is read before and after the quota RPC; a detected change rejects that observation. This is a consistency check, not an atomic guarantee provided by the backend.
 - The monitor validates the exact owned ACTIVE heartbeat's ID, task and guard prompt; preserves its fields; records a fenced outbox claim; then requests a two-minute schedule through the shipped MCP. It does not shorten a wake already within two minutes. Unexpected schema, paused/deleted/edited automation or missing authorization is not bypassed.
 - `resume_prepare` permits a claimed early wake, rechecks quota, and atomically marks it fired. Manual resume supersedes matching defers first. Cleanup reconciles fired/superseded accelerated heartbeats on local ticks without extra quota reads; the prompt must also best-effort delete its completed heartbeat.
@@ -42,7 +42,7 @@ Do not run older binaries against the migrated database. Update the installation
 
 ## Limits and diagnostics
 
-For the default stdio deployment, the app, computer and at least one guard MCP connection must remain alive. Sleep, app shutdown, closed stdio or revoked desktop capability stops monitoring. No standalone service is installed. Five minutes is a check cadence, not a guaranteed wake latency; backoff, sleep and scheduler delivery can extend it.
+For direct stdio, the app, computer and at least one guard MCP connection must remain alive. Managed Windows/WSL keeps a single core alive through a per-user logon/five-minute health task; it needs no model turn and no live MCP client, but does not run while the user is logged out or the computer sleeps. App shutdown or revoked desktop capability prevents scheduler dispatch until a new connector supplies a verified capability. Five minutes is a check cadence, not guaranteed wake latency; backoff, sleep and scheduler delivery can extend it.
 
 Version0.3.1 hardens process lifetime: input EOF/close/error, output close/error,
 transport closure or a detected missing parent triggers self-shutdown. Parent

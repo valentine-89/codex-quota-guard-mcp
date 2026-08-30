@@ -62,10 +62,11 @@ test("secondary recognition uses bucket identity, survives display renames and i
   assert.equal(reserveActive.laneBuckets.secondary?.limitId, "base_model_inference");
 });
 
-test("a primary long window alone is not permission to bypass missing five-hour capability", async () => {
+test("an unknown primary long window alone is not weekly-only capability", async () => {
   const f = fixture();
   try {
     f.raw().rateLimits.rateLimits!.primary = null;
+    f.raw().rateLimits.rateLimits!.secondary!.windowDurationMins = 43_200;
     assert.equal((await f.service.jobPreflight(f.job("unknown-capability"))).decision, "defer");
   } finally { f.close(); }
 });

@@ -20,6 +20,7 @@ const configSchema = z.object({
   minSamples: z.number().int().min(1).max(100).default(3),
   safetyFactor: z.number().min(1).max(5).default(1.5),
   maxThreshold: z.number().min(1).max(50).default(50),
+  weeklyOnlyRemainingPercent: z.number().min(2).max(5).default(3),
   cautionMarginPercent: z.number().min(1).max(25).default(5),
   maxAutomationWaitMs: z.number().int().min(60_000).max(86_400_000).default(86_400_000),
   manualResumeMinAgeMs: z.number().int().min(30_000).max(900_000).default(60_000),
@@ -38,6 +39,9 @@ const configSchema = z.object({
 }).refine((value) => Object.values(value.planDefaults).every((entry) => entry <= value.maxThreshold), {
   message: "plan defaults must be less than or equal to maxThreshold",
   path: ["planDefaults"],
+}).refine((value) => value.weeklyOnlyRemainingPercent <= value.maxThreshold, {
+  message: "weeklyOnlyRemainingPercent must be less than or equal to maxThreshold",
+  path: ["weeklyOnlyRemainingPercent"],
 });
 
 export interface GuardConfig {
@@ -52,6 +56,7 @@ export interface GuardConfig {
   minSamples: number;
   safetyFactor: number;
   maxThreshold: number;
+  weeklyOnlyRemainingPercent: number;
   cautionMarginPercent: number;
   maxAutomationWaitMs: number;
   manualResumeMinAgeMs: number;

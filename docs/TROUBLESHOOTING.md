@@ -1,5 +1,16 @@
 # Troubleshooting
 
+## WSL connector exits with `Exec format error`
+
+The managed Windows-hosted route requires WSL interoperability. First test the host,
+not Guard: `/mnt/c/Windows/System32/cmd.exe /d /c exit 0`. If that fails and
+`/proc/sys/fs/binfmt_misc/WSLInterop` is absent, the distro currently cannot start
+any Windows executable; Guard cannot repair this in-process. Do not copy credentials,
+start a native Linux core against Windows state, or silently fall back to a full
+per-task Guard. Preserve work in the distro, then let the user choose when to restart
+WSL/Windows because that can terminate unrelated Linux processes. After interop is
+restored, open a fresh Codex task and rerun the registered Windows-hosted WSL smoke.
+
 ## `CODEX_NOT_FOUND`
 
 Confirm `codex --version` works in the same environment as the MCP process. Set `codexCommand` to an absolute executable path when Codex is not on `PATH`.
