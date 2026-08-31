@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-31
+
+### Added
+
+- Added concise MCP server-wide instructions for portable cross-tool quota, preflight, defer, and resume guidance while retaining self-contained tool descriptions and the Codex AGENTS fallback.
+- Added regression coverage proving the instructions survive both the direct MCP handshake and the stdio-to-shared-core connector path.
+
 ### Fixed
 
 - Made live acceptance use the installed managed connector instead of the disabled legacy direct-stdio entrypoint.

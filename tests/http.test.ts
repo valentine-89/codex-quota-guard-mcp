@@ -16,7 +16,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { startHttpServer } from "../src/http-server.js";
 import { acquireCoreLock } from "../src/core-lock.js";
-import { createMcpServer } from "../src/mcp-server.js";
+import { createMcpServer, SERVER_INSTRUCTIONS } from "../src/mcp-server.js";
 import { StateStore } from "../src/store.js";
 import { QuotaGuardService } from "../src/service.js";
 import { rawQuota, testConfig } from "./helpers.js";
@@ -175,6 +175,7 @@ test("wire-only stdio connector uses existing HTTP service and exits on EOF", { 
     const transport = new StdioClientTransport({ command: process.execPath,
       args: ["--import", "tsx", resolve("src/http-connector.ts")], env, stderr: "pipe" });
     await client.connect(transport);
+    assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.equal((await client.listTools()).tools.length, 8);
     await client.callTool({ name: "quota_status", arguments: {} });
     await client.close();

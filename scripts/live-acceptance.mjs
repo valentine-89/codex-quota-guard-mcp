@@ -71,6 +71,10 @@ try {
   await client.connect(transport);
   const server = client.getServerVersion();
   assert.equal(server?.version, packageVersion, `Registered entrypoint must expose MCP v${packageVersion}`);
+  const instructions = client.getInstructions();
+  assert.ok(typeof instructions === "string"
+    && ["quota_status", "job_preflight", "defer_until_reset", "resume_prepare"].every((name) => instructions.includes(name)),
+  "Registered entrypoint must expose the cross-tool server instructions");
   const tools = await client.listTools();
   const toolNames = tools.tools.map((tool) => tool.name).sort();
   assert.deepEqual(toolNames, ["checkpoint_create", "checkpoint_get", "defer_automation_attach", "defer_until_reset",

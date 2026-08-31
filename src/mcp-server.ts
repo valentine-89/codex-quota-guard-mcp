@@ -5,6 +5,16 @@ import type { QuotaGuardService } from "./service.js";
 import { toGuardError } from "./errors.js";
 import type { CheckpointPayload } from "./types.js";
 
+export const SERVER_INSTRUCTIONS = [
+  "Use this server for substantial or long-running work, not for every command or small read.",
+  "Call quota_status near the start, then call job_preflight with a stable jobId before each bounded substantial segment.",
+  "Keep main work on the primary lane; use secondary only when quota_status explicitly reports it available.",
+  "Treat allow and caution as admission for that segment, not a reservation. On caution, checkpoint before more substantial work unless quotaPath is weekly_advisory, and disclose mayConsumeCredits when true.",
+  "On defer, immediately call defer_until_reset with bounded state. Schedule only when canSchedule is true, then attach only the created automation ID.",
+  "Before manual or automated resume, call resume_prepare first; stop when shouldExit is true or canResume is false.",
+  "Do not poll, force quota refresh, or store credentials, complete prompts, or complete model responses in checkpoints.",
+].join(" ");
+
 const workspaceRoot = z.string().min(1).max(4_096).refine(isAbsolute, "workspaceRoot must be absolute on this host")
   .describe("Absolute workspace root path.");
 const taskId = z.string().min(1).max(256).describe("Codex task/thread identifier.");
@@ -46,7 +56,10 @@ function failure(error: unknown) {
 }
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
-  const server = new McpServer({ name: "codex-quota-guard-mcp", version: "0.6.0" });
+  const server = new McpServer(
+    { name: "codex-quota-guard-mcp", version: "0.6.1" },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   server.registerTool("quota_status", {
     description: "Read shared Codex quota near the start of long work. Callers cannot force refresh; do not call before every command or small file read.",

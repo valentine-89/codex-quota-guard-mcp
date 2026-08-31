@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createMcpServer } from "../src/mcp-server.js";
+import { createMcpServer, SERVER_INSTRUCTIONS } from "../src/mcp-server.js";
 import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
@@ -21,7 +21,8 @@ test("MCP v0.2 handshake exposes the adaptive profile and defer lifecycle tools"
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   try {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-    assert.equal(client.getServerVersion()?.version, "0.6.0");
+    assert.equal(client.getServerVersion()?.version, "0.6.1");
+    assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
       "checkpoint_create",

@@ -1,6 +1,8 @@
-# MCP API 0.6.0
+# MCP API 0.6.1
 
 The server exposes exactly eight tools: `quota_status`, `job_preflight`, `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare`.
+
+The server also publishes MCP-wide `instructions` with the portable cross-tool sequence. These instructions are advisory because MCP clients may ignore them. Tool descriptions therefore retain local call semantics, and Codex deployments should keep the provided AGENTS snippet for host-specific enforcement and scheduler integration.
 
 Call `quota_status` near the start of long work. Call `job_preflight` once with a stable `jobId` before each substantial token-consuming segment. Do not call either tool before every command, small read, or individual file edit.
 
