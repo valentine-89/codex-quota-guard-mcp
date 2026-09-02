@@ -4,6 +4,23 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-02
+
+### Changed
+
+- Migrated from the monolithic MCP TypeScript SDK v1 package to the stable v2 client/server packages.
+- Adopted MCP `2026-07-28` end to end: `server/discover`, per-request metadata, stateless request-scoped serving, and required HTTP routing headers.
+- Pinned the public server, connector acceptance, and internal MCP clients to the modern protocol with no legacy fallback.
+
+### Fixed
+
+- Fixed Codex startup stalling when a modern client sent `server/discover` to the previous connector and received no STDIO response.
+- Replaced initialization-based connector readiness with the first confirmed modern protocol response while preserving EOF, parent, lease, and bounded-shutdown cleanup.
+
+### Documentation
+
+- Documented the modern-only compatibility boundary and kept server-wide `instructions` as the portable workflow source, with the AGENTS snippet optional for host-specific behavior.
+
 ## [0.6.1] - 2026-08-31
 
 ### Added

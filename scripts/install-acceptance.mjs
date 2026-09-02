@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { parse } from "smol-toml";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 import { managedHealth, readManagedSettings } from "../dist/managed.js";
 
 const directory = mkdtempSync(join(tmpdir(), "quota-install-"));
@@ -41,7 +41,9 @@ try {
   assert.ok(!text.includes(settings.token));
   const registration = config.mcp_servers.codex_quota_guard;
   const connect = async () => {
-    const client = new Client({ name: "install-acceptance", version: "1" }); clients.push(client);
+    const client = new Client({ name: "install-acceptance", version: "1" }, {
+      versionNegotiation: { mode: { pin: "2026-07-28" } },
+    }); clients.push(client);
     await client.connect(new StdioClientTransport({ command: registration.command, args: registration.args,
       env: { ...getDefaultEnvironment(), ...registration.env }, stderr: "pipe" }));
     assert.equal((await client.listTools()).tools.length, 8);

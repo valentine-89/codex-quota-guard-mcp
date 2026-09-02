@@ -1,4 +1,4 @@
-# Codex Quota Guard MCP 0.6.1
+# Codex Quota Guard MCP 0.7.0
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
@@ -37,13 +37,13 @@ On a Windows machine that also uses WSL, run the installer with Windows Node fro
 
 ## Uninstall
 
-Remove only the MCP registration and stop an authenticated running v0.6 core:
+Remove only the MCP registration and stop an authenticated running managed core:
 
 ```text
 node scripts/uninstall.mjs
 ```
 
-Also delete the validated v0.6 private state directory:
+Also delete the validated Guard-owned private state directory:
 
 ```text
 node scripts/uninstall.mjs --purge
@@ -62,6 +62,8 @@ The public contract has eight tools:
 Do not call the Guard before every shell command, small file read, or trivial edit. No tool accepts credentials, a force-refresh flag, or a model name.
 
 The MCP publishes concise server-wide `instructions` for portable cross-tool guidance. Individual tool descriptions remain self-contained, while the optional [Codex AGENTS snippet](examples/AGENTS-snippet.md) adds host-specific enforcement, Windows/WSL path handling, and heartbeat integration for Codex clients that support those features.
+
+The registered STDIO connector and its authenticated loopback core require MCP `2026-07-28`. They use `server/discover`, per-request metadata, and strict modern-only Streamable HTTP routing; the removed `initialize`/`initialized` lifecycle is not accepted or emulated.
 
 `quota_status.monitor` reports `runtimeMode="shared-http"`, `requiresLiveClientConnection=true`, and `lifecycleMode="codex-bound"`.
 

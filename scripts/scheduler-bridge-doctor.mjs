@@ -1,8 +1,8 @@
 // Read-only capability probe. Never calls a tool, starts a turn, or edits an automation.
 import { isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const { values } = parseArgs({ options: { server: { type: "string" } } });
 const report = (result) => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -14,7 +14,9 @@ if (!values.server || !isAbsolute(values.server)) {
   report({ ok: false, reason: "Desktop app-tools capability is absent from this process environment." });
   process.exitCode = 2;
 } else {
-  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "0.2.0" });
+  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "0.7.0" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } },
+  });
   // Use the shipped server; do not reimplement its pipe protocol or peer authorization.
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -38,7 +40,7 @@ if (!values.server || !isAbsolute(values.server)) {
     process.exitCode = ok ? 0 : 2;
   } catch {
     // Do not log pipe paths or arbitrary host errors into shareable diagnostics.
-    report({ ok: false, reason: "Desktop MCP handshake or tool inventory failed; no scheduler operation attempted." });
+    report({ ok: false, reason: "Desktop MCP discovery or tool inventory failed; no scheduler operation attempted." });
     process.exitCode = 2;
   } finally {
     clearTimeout(deadline);

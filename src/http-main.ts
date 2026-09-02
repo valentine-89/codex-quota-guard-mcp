@@ -33,7 +33,7 @@ async function main() {
         monitor: runtime.service.monitorStatus() }),
       ...(managed ? { bindDesktop: runtime.bindDesktop } : {}) });
     closeHttp = http.close;
-    // Server lifetime is independent of initialize/EOF/client disconnect.
+    // Server lifetime is independent of protocol discovery, EOF, and any one client disconnect.
     runtime.monitor.start();
     let stopping = false;
     let idleTimer: NodeJS.Timeout | undefined;

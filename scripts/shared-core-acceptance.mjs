@@ -8,16 +8,17 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { parse } from "smol-toml";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 if (process.argv.includes("--child")) {
   await import("../dist/core.js");
   process.on("message", async message => {
     if (message === "stop") { process.emit("SIGTERM"); return; }
     if (message !== "scheduler-probe") return;
-    const client = new Client({ name: "shared-core-read-only-probe", version: "1" });
+    const client = new Client({ name: "shared-core-read-only-probe", version: "1" }, {
+      versionNegotiation: { mode: { pin: "2026-07-28" } },
+    });
     const transport = new StdioClientTransport({ command: process.execPath,
       args: [process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER], env: process.env, stderr: "pipe" });
     transport.stderr?.resume();
@@ -27,7 +28,7 @@ if (process.argv.includes("--child")) {
       const readTool = inventory.tools.find(t => t.name === "list_threads");
       assert.ok(readTool, "shipped read-only task inventory unavailable");
       const result = await client.callTool({ name: readTool.name, arguments: { limit: 1 },
-        _meta: { threadId: process.env.QUOTA_PROBE_TASK_ID } }, undefined, { timeout: 10_000 });
+        _meta: { threadId: process.env.QUOTA_PROBE_TASK_ID } }, { timeout: 10_000 });
       assert.ok(!result.isError, "desktop rejected read-only dispatch");
       process.send?.({ schedulerReadAfterDisconnect: true, mutationAttempted: false });
     } catch { process.send?.({ schedulerReadAfterDisconnect: false, mutationAttempted: false }); }
@@ -73,7 +74,9 @@ if (process.argv.includes("--child")) {
     while (Date.now() < deadline) { try { ready = await health(); break; } catch { await delay(50); } }
     assert.equal(ready?.pid, child.pid);
     for (let index = 0; index < 6; index++) {
-      const client = new Client({ name: `shared-live-${index}`, version: "1" }); clients.push(client);
+      const client = new Client({ name: `shared-live-${index}`, version: "1" }, {
+        versionNegotiation: { mode: { pin: "2026-07-28" } },
+      }); clients.push(client);
       await client.connect(new StreamableHTTPClientTransport(new URL(env.CODEX_QUOTA_GUARD_HTTP_URL), { requestInit: { headers } }));
       assert.equal((await client.listTools()).tools.length, 8);
     }
@@ -95,7 +98,9 @@ if (process.argv.includes("--child")) {
     const scheduler = await schedulerResult;
     assert.equal(scheduler.schedulerReadAfterDisconnect, true);
     const interop = process.argv.includes("--wsl");
-    const connector = new Client({ name: "shared-connector-live", version: "1" }); clients.push(connector);
+    const connector = new Client({ name: "shared-connector-live", version: "1" }, {
+      versionNegotiation: { mode: { pin: "2026-07-28" } },
+    }); clients.push(connector);
     let command = process.execPath, args = [resolve("dist/connector.js")];
     if (interop) {
       // Execute Windows Node from WSL: no LAN listener and no Linux/Windows SQLite mixing.

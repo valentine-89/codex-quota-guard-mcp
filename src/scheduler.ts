@@ -1,5 +1,5 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { parse } from "smol-toml";
@@ -28,7 +28,9 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
-    const client = new Client({ name: "quota-guard-monitor", version: "0.3.0" });
+    const client = new Client({ name: "quota-guard-monitor", version: "0.7.0" }, {
+      versionNegotiation: { mode: { pin: "2026-07-28" } },
+    });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
       env: Object.fromEntries(Object.entries(this.environment).filter((entry): entry is [string, string] => entry[1] !== undefined)), stderr: "pipe" });
     transport.stderr?.on("data", () => { /* Drain without persisting capability-bearing diagnostics. */ });
@@ -52,7 +54,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
     let response;
     try {
       response = await this.client!.callTool({ name: "automation_update", arguments: args,
-        _meta: { threadId: taskId } }, undefined, { timeout: 15_000 });
+        _meta: { threadId: taskId } }, { timeout: 15_000 });
     } catch { await this.close(); throw new Error("SCHEDULER_CALL_FAILED"); }
     if (response.isError) return false;
     const content = response.content as Array<{ type: string; text?: string }>;
@@ -71,7 +73,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
     await this.ready();
     if (this.client!.getServerVersion()?.name !== "codex-app-tools") throw new Error("SCHEDULER_IDENTITY_UNSUPPORTED");
     const result = await this.client!.callTool({ name: "list_threads", arguments: { limit: 1 },
-      _meta: { threadId: taskId } }, undefined, { timeout: 15_000 });
+      _meta: { threadId: taskId } }, { timeout: 15_000 });
     if (result.isError) throw new Error("SCHEDULER_CONTEXT_REJECTED");
   }
 }

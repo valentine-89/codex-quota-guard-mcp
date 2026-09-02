@@ -1,6 +1,6 @@
 {
   "name": "codex-quota-guard-mcp",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Plan-aware adaptive Codex quota guard, passive learning, and checkpoint MCP server",
   "type": "module",
   "license": "MIT",
@@ -13,7 +13,13 @@
   "bugs": {
     "url": "https://github.com/valentine-89/codex-quota-guard-mcp/issues"
   },
-  "keywords": ["codex", "mcp", "quota", "checkpoint", "model-context-protocol"],
+  "keywords": [
+    "codex",
+    "mcp",
+    "quota",
+    "checkpoint",
+    "model-context-protocol"
+  ],
   "bin": {
     "codex-quota-guard-mcp": "dist/main.js"
   },
@@ -43,17 +49,18 @@
     "start:http": "node dist/core.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "smol-toml": "1.8.0",
-    "zod": "4.5.2"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "24.13.3",
     "eslint": "10.9.1",
-    "globals": "17.11.0",
-    "tsx": "4.23.12",
+    "globals": "17.12.0",
+    "tsx": "4.23.13",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.68.0"
+    "typescript-eslint": "8.69.0"
   }
 }

@@ -3,25 +3,30 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createMcpServer, SERVER_INSTRUCTIONS } from "../src/mcp-server.js";
 import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
-test("MCP v0.2 handshake exposes the adaptive profile and defer lifecycle tools", async () => {
+test("MCP 2026-07-28 discovery exposes instructions, adaptive profile, and defer lifecycle tools", async () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-mcp-"));
   const store = new StateStore(join(directory, "state.sqlite"));
   const service = new QuotaGuardService(testConfig(join(directory, "state.sqlite")), store, {
     readQuota: async () => rawQuota(25),
   }, { now: () => 1_000 });
-  const server = createMcpServer(service);
-  const client = new Client({ name: "quota-guard-test", version: "0.2.0" });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const handler = createMcpHandler(() => createMcpServer(service), { legacy: "reject" });
+  const client = new Client({ name: "quota-guard-test", version: "0.7.0" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } },
+  });
+  const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
+    fetch: (url, init) => handler.fetch(new Request(url, init)),
+  });
   try {
-    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-    assert.equal(client.getServerVersion()?.version, "0.6.1");
+    await client.connect(transport);
+    assert.equal(client.getProtocolEra(), "modern");
+    assert.equal(client.getServerVersion()?.version, "0.7.0");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
@@ -59,7 +64,7 @@ test("MCP v0.2 handshake exposes the adaptive profile and defer lifecycle tools"
     assert.equal(reset.effectiveThresholdPercent, 10);
   } finally {
     await client.close();
-    await server.close();
+    await handler.close();
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }

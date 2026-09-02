@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { execFileSync } from "node:child_process";
 import { parse } from "smol-toml";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 const { values } = parseArgs({ options: { wsl: { type: "boolean" }, resume: { type: "boolean" },
   "job-id": { type: "string" }, "expect-weekly": { type: "boolean" } } });
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -27,7 +27,9 @@ const transport = new StdioClientTransport({ command: values.wsl ? "wsl.exe" : c
 transport.stderr?.on("data", data => {
   if (process.env.QUOTA_SMOKE_DEBUG === "1") process.stderr.write(data);
 });
-const client = new Client({ name: "quota-registered-smoke", version: "1" });
+const client = new Client({ name: "quota-registered-smoke", version: "1" }, {
+  versionNegotiation: { mode: { pin: "2026-07-28" } },
+});
 const call = async (name, args) => {
   const result = await client.callTool({ name, arguments: args });
   assert.ok(!result.isError, `${name} failed`); return result.structuredContent;

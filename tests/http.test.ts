@@ -8,12 +8,10 @@ import { request } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import test from "node:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { startHttpServer } from "../src/http-server.js";
 import { acquireCoreLock } from "../src/core-lock.js";
 import { createMcpServer, SERVER_INSTRUCTIONS } from "../src/mcp-server.js";
@@ -21,6 +19,7 @@ import { StateStore } from "../src/store.js";
 import { QuotaGuardService } from "../src/service.js";
 import { rawQuota, testConfig } from "./helpers.js";
 import { ClientLeaseRegistry } from "../src/client-leases.js";
+import * as z from "zod/v4";
 
 async function fixture(extra: { maxConcurrentRequests?: number; maxBodyBytes?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "quota-http-"));
@@ -32,10 +31,12 @@ async function fixture(extra: { maxConcurrentRequests?: number; maxBodyBytes?: n
   service.setLiveClientCount(() => clientLeases.snapshot().liveClients);
   const http = await startHttpServer(() => createMcpServer(service), { token, clientLeases, ...extra });
   const clients: Client[] = [];
-  return { dir, service, reads: () => reads, http, token,
+  return { dir, service, reads: () => reads, liveClients: () => clientLeases.snapshot().liveClients, http, token,
     async connect() {
-      const client = new Client({ name: "http-test", version: "1" }); clients.push(client);
-      await client.connect(new StreamableHTTPClientTransport(new URL(http.url), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }) as Transport);
+      const client = new Client({ name: "http-test", version: "1" }, {
+        versionNegotiation: { mode: { pin: "2026-07-28" } },
+      }); clients.push(client);
+      await client.connect(new StreamableHTTPClientTransport(new URL(http.url), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
       return client;
     },
     async close() { await Promise.all(clients.map(c => c.close())); await http.close(); store.close(); rmSync(dir, { recursive: true, force: true }); },
@@ -111,6 +112,30 @@ test("HTTP rejects missing/bad authentication, hostile Origin/Host, query paths 
   } finally { await f.close(); }
 });
 
+test("HTTP is strict MCP 2026-07-28: legacy initialization and missing routing headers are rejected", async () => {
+  const f = await fixture();
+  const headers = { Authorization: `Bearer ${f.token}`, "Content-Type": "application/json", Accept: "application/json" };
+  try {
+    const legacy = await fetch(f.http.url, { method: "POST", headers, body: JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "legacy-test", version: "1" },
+      },
+    }) });
+    assert.equal(legacy.status, 400);
+    assert.equal(((await legacy.json() as { error: { code: number } }).error.code), -32022);
+
+    const missingRoute = await fetch(f.http.url, { method: "POST", headers: {
+      ...headers, "MCP-Protocol-Version": "2026-07-28",
+    }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": { name: "modern-test", version: "1" },
+      "io.modelcontextprotocol/clientCapabilities": {},
+    } } }) });
+    assert.equal(missingRoute.status, 400);
+    assert.equal(((await missingRoute.json() as { error: { code: number } }).error.code), -32020);
+  } finally { await f.close(); }
+});
+
 test("core ownership is exclusive and released without deleting lock state", () => {
   const dir = mkdtempSync(join(tmpdir(), "quota-core-lock-"));
   const path = join(dir, "lock.sqlite");
@@ -146,15 +171,20 @@ test("disconnected in-flight work retains its concurrency slot; overload does no
   let calls = 0;
   const http = await startHttpServer(() => {
     const server = new McpServer({ name: "slow-test", version: "1" });
-    server.registerTool("slow", { inputSchema: {} }, async () => {
+    server.registerTool("slow", { inputSchema: z.object({}) }, async () => {
       calls++; entered(); await gate;
-      return { content: [{ type: "text", text: "done" }] };
+      return { content: [{ type: "text" as const, text: "done" }] };
     });
     return server;
   }, { token, maxConcurrentRequests: 1 });
   const controller = new AbortController();
-  const init = { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "slow", arguments: {} } }) };
+  const init = { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
+    Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "tools/call", "Mcp-Name": "slow" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "slow", arguments: {}, _meta: {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": { name: "raw-http-test", version: "1" },
+      "io.modelcontextprotocol/clientCapabilities": {},
+    } } }) };
   try {
     const first = fetch(http.url, { ...init, signal: controller.signal }).catch(() => null);
     await started;
@@ -170,15 +200,21 @@ test("disconnected in-flight work retains its concurrency slot; overload does no
 test("wire-only stdio connector uses existing HTTP service and exits on EOF", { timeout: 10_000 }, async () => {
   const f = await fixture();
   const env = { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token };
-  const client = new Client({ name: "connector-test", version: "1" });
+  const client = new Client({ name: "connector-test", version: "1" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } },
+  });
   try {
     const transport = new StdioClientTransport({ command: process.execPath,
       args: ["--import", "tsx", resolve("src/http-connector.ts")], env, stderr: "pipe" });
     await client.connect(transport);
+    assert.equal(f.liveClients(), 0, "disposable server/discover probes must not acquire a live-client lease");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.equal((await client.listTools()).tools.length, 8);
+    assert.equal(f.liveClients(), 1);
     await client.callTool({ name: "quota_status", arguments: {} });
     await client.close();
+    for (let i = 0; i < 100 && f.liveClients(); i++) await delay(10);
+    assert.equal(f.liveClients(), 0);
     assert.equal(f.reads(), 1);
     const child = spawn(process.execPath, ["--import", "tsx", resolve("src/http-connector.ts")], { env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     const exit = new Promise<number | null>(resolve => child.once("exit", resolve));

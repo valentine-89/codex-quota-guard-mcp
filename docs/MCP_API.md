@@ -1,4 +1,6 @@
-# MCP API 0.6.1
+# MCP API 0.7.0
+
+The server implements MCP `2026-07-28` only. Clients discover capabilities and server-wide instructions with `server/discover`; each request carries its protocol version, client metadata, and capabilities. The shared HTTP core validates `MCP-Protocol-Version`, `Mcp-Method`, and applicable `Mcp-Name` headers against the request body. Legacy `initialize`/`initialized` traffic is rejected rather than downgraded.
 
 The server exposes exactly eight tools: `quota_status`, `job_preflight`, `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare`.
 

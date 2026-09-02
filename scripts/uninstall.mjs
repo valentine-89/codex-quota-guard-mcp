@@ -1,4 +1,4 @@
-// Removes only the Guard registration. --purge additionally removes its validated private v0.6 state.
+// Removes only the Guard registration. --purge additionally removes its validated Guard-owned private state.
 import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, chmodSync } from "node:fs";
 import { join, resolve, dirname, relative } from "node:path";
 import { homedir } from "node:os";

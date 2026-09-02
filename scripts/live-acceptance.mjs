@@ -6,8 +6,8 @@ import { parseArgs } from "node:util";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { parse } from "smol-toml";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const { values } = parseArgs({ options: {
@@ -65,7 +65,9 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const packageVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
-const client = new Client({ name: "codex-quota-guard-live-acceptance", version: packageVersion });
+const client = new Client({ name: "codex-quota-guard-live-acceptance", version: packageVersion }, {
+  versionNegotiation: { mode: { pin: "2026-07-28" } },
+});
 
 try {
   await client.connect(transport);

@@ -1,9 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import type { Socket } from "node:net";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { createMcpHandler, type McpServer } from "@modelcontextprotocol/server";
 import type { ClientLeaseRegistry } from "./client-leases.js";
 
 export interface HttpServerOptions {
@@ -31,6 +29,9 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
   let active = 0, closing = false, port = 0, lastActivityAtMs = now();
   const sockets = new Set<Socket>();
   const work = new Set<Promise<void>>();
+  const protocolHandler = createMcpHandler(createProtocol, {
+    legacy: "reject",
+  });
   const reply = (res: ServerResponse, status: number, body: object = {}) => {
     if (!res.destroyed && !res.writableEnded) {
       res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -62,8 +63,6 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
     const bodyLimit = desktopBinding || clientLease ? Math.min(maxBody, 4096) : maxBody;
     if (Number(req.headers["content-length"] ?? 0) > bodyLimit) { reply(res, 413); return; }
     active++;
-    let protocol: McpServer | undefined;
-    let transport: StreamableHTTPServerTransport | undefined;
     // A disconnected/timed-out response must not release its work slot early.
     const deadline = setTimeout(() => { reply(res, 504); req.destroy(); }, timeout);
     try {
@@ -101,17 +100,20 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
         const accepted = await options.bindDesktop!(input.pipePath, input.taskId);
         reply(res, accepted ? 200 : 403, { accepted }); return;
       }
-      protocol = createProtocol();
-      transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
-      // SDK HTTP callbacks explicitly include undefined, unlike its Transport interface.
-      await protocol.connect(transport as Transport);
-      await transport.handleRequest(req, res, body);
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(req.headers)) {
+        if (Array.isArray(value)) for (const item of value) headers.append(name, item);
+        else if (value !== undefined) headers.set(name, value);
+      }
+      const protocolResponse = await protocolHandler.fetch(new Request(`http://${authority}${req.url}`, {
+        method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout),
+      }), { parsedBody: body });
+      const responseHeaders = Object.fromEntries(protocolResponse.headers.entries());
+      res.writeHead(protocolResponse.status, responseHeaders);
+      res.end(Buffer.from(await protocolResponse.arrayBuffer()));
     } catch { reply(res, 500, { error: "HTTP_REQUEST_FAILED" }); }
     finally {
       clearTimeout(deadline);
-      // Only protocol resources are closed here, never the shared service/store/monitor.
-      await protocol?.close().catch(() => undefined);
-      await transport?.close().catch(() => undefined);
       active--;
     }
   };
@@ -142,6 +144,7 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
       const closed = new Promise<void>(resolve => server.close(() => resolve()));
       for (const socket of sockets) socket.destroy();
       await Promise.allSettled([...work]);
+      await protocolHandler.close().catch(() => undefined);
       await closed;
     },
   };

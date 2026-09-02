@@ -6,6 +6,6 @@ Before rate-limit IO, the app-server result must contain `account.type === "chat
 
 Runtime settings contain only local paths, port, installation ID, and a random bearer. POSIX directories are `0700` and files `0600`. Windows applies a current-user-only DACL through non-elevated PowerShell 7. The bearer is not placed in command-line arguments or general documentation output.
 
-HTTP is loopback-only and rejects weak tokens, hostile Host/Origin values, query paths, unsupported content types, oversized bodies and excess concurrency. Install and uninstall preserve unrelated Codex configuration; purge accepts only a resolved Guard-owned v0.6 state path.
+HTTP is loopback-only and rejects weak tokens, hostile Host/Origin values, query paths, unsupported content types, oversized bodies and excess concurrency. Install and uninstall preserve unrelated Codex configuration; purge accepts only a resolved Guard-owned state path.
 
 The tool requests no camera, microphone, browser, accessibility, administrator, service-control, network-change, process-inspection, or hypervisor permissions.

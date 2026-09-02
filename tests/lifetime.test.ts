@@ -10,7 +10,7 @@ function fixture(options: { alive?: () => boolean; cleanup?: () => Promise<void>
   const exits: Array<{ code: number; reason: ExitReason }> = [];
   const lifetime = new ProcessLifetime({ input, output, parentAlive: options.alive ?? (() => true),
     cleanup: async () => { cleanups++; await options.cleanup?.(); }, exit: (code, reason) => { exits.push({ code, reason }); },
-    initializeTimeoutMs: 40, parentCheckMs: 10, shutdownTimeoutMs: 30 });
+    protocolReadyTimeoutMs: 40, parentCheckMs: 10, shutdownTimeoutMs: 30 });
   return { input, output, lifetime, exits, cleanups: () => cleanups };
 }
 
@@ -18,7 +18,7 @@ test("all broken stream signals clean up exactly once", async () => {
   for (const [which, event] of [["input", "end"], ["input", "close"], ["input", "error"], ["output", "close"], ["output", "error"]] as const) {
     const f = fixture();
     try {
-      f.lifetime.markInitialized(); f[which].emit(event);
+      f.lifetime.markReady(); f[which].emit(event);
       f.lifetime.stop("signal"); f.lifetime.stop("transport_closed");
       await delay(0);
       assert.equal(f.cleanups(), 1); assert.equal(f.exits.length, 1);
@@ -27,14 +27,14 @@ test("all broken stream signals clean up exactly once", async () => {
   }
 });
 
-test("uninitialized connection expires but a connected idle session does not", async () => {
+test("connection without a modern MCP response expires but a ready idle connection does not", async () => {
   const abandoned = fixture(), connected = fixture();
   try {
-    connected.lifetime.markInitialized();
+    connected.lifetime.markReady();
     await delay(75);
-    assert.equal(abandoned.exits[0]?.reason, "initialize_timeout");
+    assert.equal(abandoned.exits[0]?.reason, "protocol_ready_timeout");
     assert.equal(connected.exits.length, 0);
-    assert.equal(connected.lifetime.status().initialized, true);
+    assert.equal(connected.lifetime.status().ready, true);
   } finally { abandoned.lifetime.dispose(); connected.lifetime.dispose(); }
 });
 
@@ -42,7 +42,7 @@ test("missing parent self-terminates without touching other processes", async ()
   let alive = true;
   const f = fixture({ alive: () => alive });
   try {
-    f.lifetime.markInitialized(); alive = false;
+    f.lifetime.markReady(); alive = false;
     await delay(35);
     assert.equal(f.exits[0]?.reason, "parent_exited");
   } finally { f.lifetime.dispose(); }
