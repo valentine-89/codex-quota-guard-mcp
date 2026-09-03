@@ -6,7 +6,7 @@ test("resume automation is fixed, same-task and rounded after the safe resume ti
   const resumeAt = new Date(2026, 8, 3, 10, 37, 12, 345).getTime();
   const request = resumeAutomationRequest("defer-id", "task-id", resumeAt);
   assert.equal(request.prompt, RESUME_AUTOMATION_PROMPT);
-  assert.equal(request.prompt, "Tiếp tục công việc.");
+  assert.equal(request.prompt, "Continue the work.");
   assert.equal(request.name, "Quota Guard resume defer-id");
   assert.equal(request.targetThreadId, "task-id");
   assert.equal(request.destination, "thread");

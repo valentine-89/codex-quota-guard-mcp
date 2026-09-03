@@ -1,4 +1,4 @@
-# Codex Quota Guard MCP 0.7.1
+# Codex Quota Guard MCP 0.7.2
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
@@ -63,7 +63,7 @@ Do not call the Guard before every shell command, small file read, or trivial ed
 
 The MCP publishes concise server-wide `instructions` for portable cross-tool guidance. Individual tool descriptions remain self-contained, while the optional [Codex AGENTS snippet](examples/AGENTS-snippet.md) adds host-specific enforcement, Windows/WSL path handling, and heartbeat integration for Codex clients that support those features.
 
-For a schedulable defer, the Guard returns a complete same-task one-shot `automationRequest` with the fixed `Tiếp tục công việc.` prompt. Pass it unchanged to the host automation tool and attach only the returned ID; no automation inventory scan, scheduler-documentation lookup, or model-authored prompt is required.
+For a schedulable defer, the Guard returns a complete same-task one-shot `automationRequest` with the fixed `Continue the work.` prompt. Pass it unchanged to the host automation tool and attach only the returned ID; no automation inventory scan, scheduler-documentation lookup, or model-authored prompt is required.
 
 The registered STDIO connector and its authenticated loopback core require MCP `2026-07-28`. They use `server/discover`, per-request metadata, and strict modern-only Streamable HTTP routing; the removed `initialize`/`initialized` lifecycle is not accepted or emulated.
 

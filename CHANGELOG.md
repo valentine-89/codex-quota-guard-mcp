@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-03
+
+### Changed
+
+- Standardized the fixed resume automation prompt in English as `Continue the work.` for language-neutral public distribution without adding locale detection or prompt generation.
+
 ## [0.7.1] - 2026-09-03
 
 ### Changed

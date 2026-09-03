@@ -1,4 +1,4 @@
-export const RESUME_AUTOMATION_PROMPT = "Tiếp tục công việc.";
+export const RESUME_AUTOMATION_PROMPT = "Continue the work.";
 
 export interface ResumeAutomationRequest {
   mode: "create";

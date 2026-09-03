@@ -17,7 +17,7 @@ test("MCP 2026-07-28 discovery exposes instructions, adaptive profile, and defer
     readQuota: async () => rawQuota(25),
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "reject" });
-  const client = new Client({ name: "quota-guard-test", version: "0.7.1" }, {
+  const client = new Client({ name: "quota-guard-test", version: "0.7.2" }, {
     versionNegotiation: { mode: { pin: "2026-07-28" } },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -26,7 +26,7 @@ test("MCP 2026-07-28 discovery exposes instructions, adaptive profile, and defer
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "modern");
-    assert.equal(client.getServerVersion()?.version, "0.7.1");
+    assert.equal(client.getServerVersion()?.version, "0.7.2");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
