@@ -1,4 +1,4 @@
-# MCP API 0.7.2
+# MCP API 0.7.3
 
 The server implements MCP `2026-07-28` only. Clients discover capabilities and server-wide instructions with `server/discover`; each request carries its protocol version, client metadata, and capabilities. The shared HTTP core validates `MCP-Protocol-Version`, `Mcp-Method`, and applicable `Mcp-Name` headers against the request body. Legacy `initialize`/`initialized` traffic is rejected rather than downgraded.
 
@@ -9,6 +9,8 @@ When a defer is schedulable, `defer_until_reset` returns a complete `automationR
 The server also publishes MCP-wide `instructions` with the portable cross-tool sequence. These instructions are advisory because MCP clients may ignore them. Tool descriptions therefore retain local call semantics, and Codex deployments should keep the provided AGENTS snippet for host-specific enforcement and scheduler integration.
 
 Call `quota_status` near the start of long work. Call `job_preflight` once with a stable `jobId` before each substantial token-consuming segment. Do not call either tool before every command, small read, or individual file edit.
+
+`quota_status` has no refresh parameter. When the previous successful read is more than 30 seconds old, the server may refresh through its normal shared lease and backoff before answering. Other callers use the adaptive cache TTL. No new background reader is added; the existing attached-defer monitor retains its bounded five-minute cadence and stops without a live connector.
 
 No tool accepts credentials, direct OAuth data, API keys, model names, or force refresh. `quota_status` returns unavailable quota and `CHATGPT_LOGIN_REQUIRED` for unsupported auth. Every preflight then returns `defer`.
 

@@ -33,6 +33,7 @@ import type {
 
 export interface QuotaReader { readQuota(): Promise<AppServerQuotaResult> }
 export interface ServiceDependencies { now?: () => number; random?: () => number; ownerId?: string }
+export const INTERACTIVE_REFRESH_MIN_AGE_MS = 30_000;
 
 function iso(ms: number | null): string | null { return ms === null ? null : new Date(ms).toISOString() }
 
@@ -272,6 +273,15 @@ export class QuotaGuardService {
     } finally {
       this.store.releaseLease(this.key, this.ownerId);
     }
+  }
+
+  /** A status request may tighten freshness, but cannot bypass shared lease or backoff. */
+  async quotaStatusForRequest(): Promise<QuotaSnapshot> {
+    const cached = this.store.getCache(this.key);
+    if (cached && this.now() - cached.fetchedAtMs > INTERACTIVE_REFRESH_MIN_AGE_MS) {
+      this.store.capCacheDeadline(this.key, cached.fetchedAtMs + INTERACTIVE_REFRESH_MIN_AGE_MS);
+    }
+    return this.quotaStatus();
   }
 
   /** Internal timer path, never a public force-refresh input. */

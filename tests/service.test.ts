@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { oneShotRrule, RESUME_AUTOMATION_PROMPT, resumeAutomationName } from "../src/automation.js";
 import { GuardError } from "../src/errors.js";
-import { QuotaGuardService, type QuotaReader } from "../src/service.js";
+import { INTERACTIVE_REFRESH_MIN_AGE_MS, QuotaGuardService, type QuotaReader } from "../src/service.js";
 import { profileKey, StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
@@ -31,6 +31,30 @@ test("many service instances use one shared cached refresh", async () => {
     secondStore.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("interactive status refreshes only after 30 seconds", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "quota-guard-interactive-refresh-"));
+  const path = join(directory, "state.sqlite");
+  const store = new StateStore(path);
+  let now = 1_000, reads = 0, raw = rawQuota(20);
+  try {
+    const service = new QuotaGuardService(testConfig(path), store, {
+      readQuota: async () => { reads += 1; return raw; },
+    }, { now: () => now });
+    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 80);
+    now += INTERACTIVE_REFRESH_MIN_AGE_MS;
+    raw = rawQuota(90);
+    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 80);
+    assert.equal(reads, 1);
+    now += 1;
+    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 10);
+    assert.equal(reads, 2);
+    now += INTERACTIVE_REFRESH_MIN_AGE_MS + 1;
+    raw = rawQuota(30);
+    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 70);
+    assert.equal(reads, 3);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("concurrent refresh uses a lease instead of a request herd", async () => {

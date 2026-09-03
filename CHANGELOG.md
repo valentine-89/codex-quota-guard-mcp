@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-09-03
+
+### Changed
+
+- Added a bounded, request-driven freshness path for explicit `quota_status` calls: cache older than 30 seconds is refreshed through the existing single-flight lease and shared backoff, with no timer or public force-refresh input.
+
 ## [0.7.2] - 2026-09-03
 
 ### Changed

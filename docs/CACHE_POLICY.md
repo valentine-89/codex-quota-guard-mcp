@@ -4,7 +4,9 @@ The state database uses SQLite WAL, normal synchronous mode, a five-second busy 
 
 ## Adaptive TTL
 
-With defaults, high remaining quota is refreshed no more often than every 15 minutes; lower bands use 5 minutes, 2 minutes and 1 minute. A zero allowance can sleep until its reset plus grace. Shared TTL is the minimum across detected role allowances and their reset boundaries; a usable secondary role keeps refresh possible while primary is exhausted. Runtime credits cap TTL at the warning interval. During ordinary work refresh is caller-driven. The only background exception is the monitor's bounded five-minute revalidation while an active attached defer is waiting.
+With defaults, high remaining quota is refreshed no more often than every 15 minutes; lower bands use 5 minutes, 2 minutes and 1 minute. A zero allowance can sleep until its reset plus grace. Shared TTL is the minimum across detected role allowances and their reset boundaries; a usable secondary role keeps refresh possible while primary is exhausted. Runtime credits cap TTL at the warning interval. During ordinary work refresh is caller-driven. The only background exception is the existing monitor's bounded five-minute revalidation while an active attached defer is waiting.
+
+An explicit `quota_status` request tightens freshness without adding a timer. If the previous successful read is more than 30 seconds old, the request expires that cache deadline and follows the normal shared refresh path. At exactly 30 seconds it remains cached. Other callers retain the adaptive TTL. There is no caller-controlled refresh input.
 
 No MCP input exposes a generic force-refresh switch. A manual or validated due-automation `resume_prepare` may expire a deferred selected-role snapshot after the configured minimum age, then uses the same shared lease/backoff for controlled revalidation. It cannot bypass an active backoff. A diagnostic follows normal cache policy. A passed reset marks cached data stale; reset grace never means old quota is fresh.
 

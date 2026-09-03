@@ -58,14 +58,14 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "0.7.2" },
+    { name: "codex-quota-guard-mcp", version: "0.7.3" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
   server.registerTool("quota_status", {
-    description: "Read shared Codex quota near the start of long work. Callers cannot force refresh; do not call before every command or small file read.",
+    description: "Read current shared Codex quota near the start of long work. If the previous successful read is over 30 seconds old, this request may refresh through the shared lease/backoff; there is no force input and callers must not call before every command or small file read.",
     inputSchema: z.object({}),
-  }, async () => { try { return result({ ...await service.quotaStatus(), monitor: service.monitorStatus() }); } catch (error) { return failure(error); } });
+  }, async () => { try { return result({ ...await service.quotaStatusForRequest(), monitor: service.monitorStatus() }); } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
     description: "Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Use primary for main work; secondary only when quota_status reports it.",
