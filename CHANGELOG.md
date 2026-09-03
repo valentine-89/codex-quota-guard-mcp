@@ -4,6 +4,17 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-03
+
+### Changed
+
+- Added a direct-passthrough `automationRequest` for schedulable defers with a host-local one-shot RRULE, same-task destination, ownership-bearing name, and fixed `Tiếp tục công việc.` prompt.
+- Front-loaded server and tool instructions so Codex calls the native automation tool without inspecting existing automations, browsing scheduler documentation, or composing a prompt.
+
+### Fixed
+
+- Preserved safe monitor ownership checks after removing defer/checkpoint identifiers from the user-visible automation prompt by validating the exact generated automation name and fixed prompt instead.
+
 ## [0.7.0] - 2026-09-02
 
 ### Changed

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { oneShotRrule, RESUME_AUTOMATION_PROMPT, resumeAutomationName } from "../src/automation.js";
 import { GuardError } from "../src/errors.js";
 import { QuotaGuardService, type QuotaReader } from "../src/service.js";
 import { profileKey, StateStore } from "../src/store.js";
@@ -147,7 +148,17 @@ test("defer creates a resumable checkpoint after reset grace", async () => {
     assert.equal(result.resumeAt, new Date(2_030_000).toISOString());
     assert.equal(result.canSchedule, true);
     assert.match(result.defer.id, /^[0-9a-f-]{36}$/);
-    assert.match(result.automationPrompt, new RegExp(result.checkpoint.id));
+    assert.equal(result.automationPrompt, RESUME_AUTOMATION_PROMPT);
+    assert.deepEqual(result.automationRequest, {
+      mode: "create",
+      kind: "heartbeat",
+      name: resumeAutomationName(result.defer.id),
+      prompt: RESUME_AUTOMATION_PROMPT,
+      rrule: oneShotRrule(2_030_000),
+      status: "ACTIVE",
+      destination: "thread",
+      targetThreadId: "task-1",
+    });
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
@@ -233,6 +244,7 @@ test("defer keeps a checkpoint but refuses to schedule resets beyond 24 hours", 
     assert.equal(result.canSchedule, false);
     assert.equal(result.reason, "reset_too_far");
     assert.notEqual(result.checkpoint.resumeAt, null);
+    assert.equal(result.automationRequest, null);
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
@@ -253,6 +265,7 @@ test("defer does not invent a reset for depleted workspace credits", async () =>
     assert.equal(result.reason, "reset_unknown");
     assert.equal(result.resumeAt, null);
     assert.equal(result.canSchedule, false);
+    assert.equal(result.automationRequest, null);
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

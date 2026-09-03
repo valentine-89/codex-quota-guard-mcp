@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { stringify, parse } from "smol-toml";
+import { RESUME_AUTOMATION_PROMPT, resumeAutomationName } from "../src/automation.js";
 import { DesktopSchedulerBridge, EARLY_RRULE, type SchedulerRpc } from "../src/scheduler.js";
 import { StateStore } from "../src/store.js";
 
@@ -15,8 +16,8 @@ function fixture() {
   const defer = store.attachAutomation("p", created.id, "owned", 1_000)!;
   const parent = join(dir, "automations", "owned"); mkdirSync(parent, { recursive: true });
   const file = join(parent, "automation.toml");
-  const initial = { version: 1, id: "owned", kind: "heartbeat", name: "test", status: "ACTIVE", rrule: "FREQ=MINUTELY;INTERVAL=115",
-    prompt: `resume_prepare ${defer.id} ${checkpoint.id}`, target_thread_id: "task", created_at: 1_000, updated_at: 1_000,
+  const initial = { version: 1, id: "owned", kind: "heartbeat", name: resumeAutomationName(defer.id), status: "ACTIVE", rrule: "FREQ=MINUTELY;INTERVAL=115",
+    prompt: RESUME_AUTOMATION_PROMPT, target_thread_id: "task", created_at: 1_000, updated_at: 1_000,
     notification_policy: "failed_runs_only" };
   writeFileSync(file, stringify(initial));
   const calls: Record<string, unknown>[] = [];
@@ -49,7 +50,8 @@ test("scheduler updates only exact owned heartbeat and preserves prompt/notifica
 test("paused, unrelated, unsafe path and unknown schema records cannot be advanced", async () => {
   const f = fixture();
   try {
-    for (const patch of [{ status: "PAUSED" }, { target_thread_id: "other" }, { prompt: "unrelated" }, { future_field: true }]) {
+    for (const patch of [{ status: "PAUSED" }, { target_thread_id: "other" }, { prompt: "unrelated" },
+      { name: "unrelated" }, { future_field: true }]) {
       f.write(patch); assert.equal(await f.bridge.read(f.defer), null);
     }
     assert.equal(await f.bridge.read({ ...f.defer, automationId: "../owned" }), null);

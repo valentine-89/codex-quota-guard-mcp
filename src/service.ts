@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { RESUME_AUTOMATION_PROMPT, resumeAutomationRequest, type ResumeAutomationRequest } from "./automation.js";
 import type { GuardConfig } from "./config.js";
 import { toGuardError } from "./errors.js";
 import {
@@ -369,7 +370,8 @@ export class QuotaGuardService {
 
   async deferUntilReset(payload: CheckpointPayload): Promise<{
     deferId: string; defer: StoredDefer; checkpoint: StoredCheckpoint; resumeAt: string | null; canSchedule: boolean;
-    reason: "scheduled" | "reset_too_far" | "reset_unknown" | "advisory_only"; automationPrompt: string; quota: QuotaSnapshot;
+    reason: "scheduled" | "reset_too_far" | "reset_unknown" | "advisory_only"; automationPrompt: string;
+    automationRequest: ResumeAutomationRequest | null; quota: QuotaSnapshot;
   }> {
     if (!payload.taskId) throw new Error("taskId is required for defer_until_reset in v0.2");
     const status = await this.quotaStatus();
@@ -386,15 +388,12 @@ export class QuotaGuardService {
       && resumeAtMs - this.now() <= this.config.maxAutomationWaitMs;
     const reason = quota.lanes[laneId]?.quotaPath === "weekly_advisory" ? "advisory_only"
       : resumeAtMs === null ? "reset_unknown" : canSchedule ? "scheduled" : "reset_too_far";
-    const automationPrompt = [
-      `Resume quota-guard ${laneId} defer ${defer.id} from checkpoint ${checkpoint.id}.`,
-      `First call resume_prepare with trigger "automation", workspaceRoot ${JSON.stringify(checkpoint.workspaceRoot)}, taskId ${JSON.stringify(payload.taskId)}, laneId "${laneId}", and deferId "${defer.id}".`,
-      "If shouldExit is true, stop without doing work.",
-      "If canResume is false, do not start work; read the checkpoint and defer again for the same lane. Schedule only when canSchedule is true and attach the heartbeat ID.",
-      `Call checkpoint_get with workspaceRoot ${JSON.stringify(checkpoint.workspaceRoot)}, taskId ${JSON.stringify(payload.taskId)}, checkpointId "${checkpoint.id}". Verify repository state and preflight only pending work on lane "${laneId}".`,
-      "Do not change models or start a primary job using a secondary allowance. Best-effort delete this completed one-shot heartbeat.",
-    ].join(" ");
-    return { deferId: defer.id, defer, checkpoint, resumeAt: iso(resumeAtMs), canSchedule, reason, automationPrompt, quota };
+    const automationPrompt = RESUME_AUTOMATION_PROMPT;
+    const automationRequest = canSchedule && resumeAtMs !== null
+      ? resumeAutomationRequest(defer.id, payload.taskId, resumeAtMs)
+      : null;
+    return { deferId: defer.id, defer, checkpoint, resumeAt: iso(resumeAtMs), canSchedule, reason,
+      automationPrompt, automationRequest, quota };
   }
 
   attachAutomation(deferId: string, automationId: string): StoredDefer {

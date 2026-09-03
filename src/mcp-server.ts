@@ -7,10 +7,11 @@ import type { CheckpointPayload } from "./types.js";
 
 export const SERVER_INSTRUCTIONS = [
   "Use this server for substantial or long-running work, not for every command or small read.",
+  "For a schedulable defer, pass automationRequest unchanged to the host automation_update tool; do not inspect automations, browse scheduling docs, or rewrite its fixed prompt, then attach only the returned automation ID.",
   "Call quota_status near the start, then call job_preflight with a stable jobId before each bounded substantial segment.",
   "Keep main work on the primary lane; use secondary only when quota_status explicitly reports it available.",
   "Treat allow and caution as admission for that segment, not a reservation. On caution, checkpoint before more substantial work unless quotaPath is weekly_advisory, and disclose mayConsumeCredits when true.",
-  "On defer, immediately call defer_until_reset with bounded state. Schedule only when canSchedule is true, then attach only the created automation ID.",
+  "On defer, immediately call defer_until_reset with bounded state. Never schedule when canSchedule is false.",
   "Before manual or automated resume, call resume_prepare first; stop when shouldExit is true or canResume is false.",
   "Do not poll, force quota refresh, or store credentials, complete prompts, or complete model responses in checkpoints.",
 ].join(" ");
@@ -57,7 +58,7 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "0.7.0" },
+    { name: "codex-quota-guard-mcp", version: "0.7.1" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -113,12 +114,12 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   });
 
   server.registerTool("defer_until_reset", {
-    description: "Always checkpoint a blocked task and create a quota-guard-owned defer record. Schedule the returned heartbeat only when canSchedule is true, then attach its automation ID.",
+    description: "Checkpoint a blocked task and create an owned defer. When canSchedule is true, immediately pass automationRequest unchanged to host automation_update without inspecting automations, reading scheduler docs, or rewriting prompt; then attach its returned ID.",
     inputSchema: z.object({ ...checkpointFields, taskId }),
   }, async (input) => { try { return result(await service.deferUntilReset(payloadFrom(input))); } catch (error) { return failure(error); } });
 
   server.registerTool("defer_automation_attach", {
-    description: "Attach the Codex heartbeat automation ID created for one active quota-guard defer. Never attach unrelated automations.",
+    description: "Attach only the automation ID returned by the immediately preceding automation_update create call for this defer. Do not list or inspect automations; never attach an unrelated ID.",
     inputSchema: z.object({ deferId: z.string().uuid(), automationId: z.string().min(1).max(256) }),
   }, async ({ deferId, automationId }) => { try { return result(service.attachAutomation(deferId, automationId)); } catch (error) { return failure(error); } });
 

@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { parse } from "smol-toml";
+import { RESUME_AUTOMATION_PROMPT, resumeAutomationName } from "./automation.js";
 import type { SchedulerBridge, SchedulerDefinition } from "./monitor.js";
 import type { StoredDefer } from "./types.js";
 
@@ -28,7 +29,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
-    const client = new Client({ name: "quota-guard-monitor", version: "0.7.0" }, {
+    const client = new Client({ name: "quota-guard-monitor", version: "0.7.1" }, {
       versionNegotiation: { mode: { pin: "2026-07-28" } },
     });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
@@ -131,9 +132,8 @@ export class DesktopSchedulerBridge implements SchedulerBridge {
     const record = parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     if (Object.keys(record).some(key => !allowedFields.has(key)) || record.version !== 1
       || record.id !== defer.automationId || record.kind !== "heartbeat" || record.status !== "ACTIVE"
-      || record.target_thread_id !== defer.taskId || typeof record.prompt !== "string"
-      || !record.prompt.includes(defer.id) || !record.prompt.includes(defer.checkpointId)
-      || typeof record.name !== "string" || typeof record.rrule !== "string"
+      || record.target_thread_id !== defer.taskId || record.prompt !== RESUME_AUTOMATION_PROMPT
+      || record.name !== resumeAutomationName(defer.id) || typeof record.rrule !== "string"
       || typeof record.created_at !== "number"
       || (record.notification_policy !== undefined && record.notification_policy !== "failed_runs_only")
       || (record.destination !== undefined && !["local", "thread"].includes(String(record.destination)))) return null;
