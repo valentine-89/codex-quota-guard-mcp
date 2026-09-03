@@ -58,12 +58,12 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "0.7.3" },
+    { name: "codex-quota-guard-mcp", version: "0.7.4" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
   server.registerTool("quota_status", {
-    description: "Read current shared Codex quota near the start of long work. If the previous successful read is over 30 seconds old, this request may refresh through the shared lease/backoff; there is no force input and callers must not call before every command or small file read.",
+    description: "Read current shared Codex quota near the start of long work. If a detected lane is in caution/defer state and the previous successful read is over 30 seconds old, this request may refresh through the shared lease/backoff. Healthy quota retains adaptive TTL; there is no force input and callers must not call before every command or small file read.",
     inputSchema: z.object({}),
   }, async () => { try { return result({ ...await service.quotaStatusForRequest(), monitor: service.monitorStatus() }); } catch (error) { return failure(error); } });
 

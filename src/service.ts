@@ -275,10 +275,14 @@ export class QuotaGuardService {
     }
   }
 
-  /** A status request may tighten freshness, but cannot bypass shared lease or backoff. */
+  /** Only detected caution/defer lanes tighten freshness; lease and backoff still apply. */
   async quotaStatusForRequest(): Promise<QuotaSnapshot> {
     const cached = this.store.getCache(this.key);
-    if (cached && this.now() - cached.fetchedAtMs > INTERACTIVE_REFRESH_MIN_AGE_MS) {
+    const status = cached && this.isV2Snapshot(cached.snapshot)
+      ? this.decorate(cached.snapshot, cached.accountFingerprint) : null;
+    const nearLimit = Object.values(status?.lanes ?? {}).some(lane => lane.available
+      && (lane.recommendation === "caution" || lane.recommendation === "checkpoint_and_defer"));
+    if (cached && nearLimit && this.now() - cached.fetchedAtMs > INTERACTIVE_REFRESH_MIN_AGE_MS) {
       this.store.capCacheDeadline(this.key, cached.fetchedAtMs + INTERACTIVE_REFRESH_MIN_AGE_MS);
     }
     return this.quotaStatus();

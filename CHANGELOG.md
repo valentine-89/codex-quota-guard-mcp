@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-09-03
+
+### Changed
+
+- Restricted the request-driven 30-second freshness path to detected caution/defer lanes under the current policy; healthy quota retains adaptive TTL, with no new timer or public input.
+- Added regression coverage for healthy TTL bands, recovery, absent/reserve lanes, policy overrides, concurrent status reads and shared backoff.
+
 ## [0.7.3] - 2026-09-03
 
 ### Changed

@@ -1,4 +1,4 @@
-# Codex Quota Guard MCP 0.7.3
+# Codex Quota Guard MCP 0.7.4
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
@@ -61,7 +61,7 @@ The public contract has eight tools:
 
 Do not call the Guard before every shell command, small file read, or trivial edit. No tool accepts credentials, a force-refresh flag, or a model name.
 
-Ordinary quota refresh remains caller-driven. An explicit `quota_status` request may read the current value once the previous successful read is more than 30 seconds old. This bounded path still obeys the shared refresh lease and backoff and is not exposed as a force-refresh option. With no request, no new background reader runs.
+Ordinary quota refresh remains caller-driven. An explicit `quota_status` request may read the current value once the previous successful read is more than 30 seconds old, but only when a detected quota lane is already in caution/defer state. Healthy quota retains the adaptive TTL. This bounded path still obeys the shared refresh lease and backoff and is not exposed as a force-refresh option. With no request, no new background reader runs.
 
 The MCP publishes concise server-wide `instructions` for portable cross-tool guidance. Individual tool descriptions remain self-contained, while the optional [Codex AGENTS snippet](examples/AGENTS-snippet.md) adds host-specific enforcement, Windows/WSL path handling, and heartbeat integration for Codex clients that support those features.
 

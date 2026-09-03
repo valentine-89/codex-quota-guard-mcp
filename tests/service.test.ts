@@ -33,19 +33,19 @@ test("many service instances use one shared cached refresh", async () => {
   }
 });
 
-test("interactive status refreshes only after 30 seconds", async () => {
+test("interactive caution status refreshes only after 30 seconds and healthy recovery restores TTL", async () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-interactive-refresh-"));
   const path = join(directory, "state.sqlite");
   const store = new StateStore(path);
-  let now = 1_000, reads = 0, raw = rawQuota(20);
+  let now = 1_000, reads = 0, raw = rawQuota(85);
   try {
     const service = new QuotaGuardService(testConfig(path), store, {
       readQuota: async () => { reads += 1; return raw; },
     }, { now: () => now });
-    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 80);
+    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 15);
     now += INTERACTIVE_REFRESH_MIN_AGE_MS;
     raw = rawQuota(90);
-    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 80);
+    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 15);
     assert.equal(reads, 1);
     now += 1;
     assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 10);
@@ -54,7 +54,90 @@ test("interactive status refreshes only after 30 seconds", async () => {
     raw = rawQuota(30);
     assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 70);
     assert.equal(reads, 3);
+    now += INTERACTIVE_REFRESH_MIN_AGE_MS + 1;
+    raw = rawQuota(95);
+    assert.equal((await service.quotaStatusForRequest()).fiveHour?.remainingPercent, 70);
+    assert.equal(reads, 3);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("interactive healthy status preserves each adaptive TTL and ignores an unavailable reserve", async () => {
+  for (const [used, ttl] of [[20, 900_000], [60, 300_000], [80, 120_000], [94, 60_000]]) {
+    const directory = mkdtempSync(join(tmpdir(), "quota-guard-healthy-status-"));
+    const path = join(directory, "state.sqlite"), store = new StateStore(path);
+    const config = testConfig(path);
+    config.planDefaults.standard = 1;
+    config.cautionMarginPercent = 1;
+    let now = 1_000, reads = 0;
+    try {
+      const service = new QuotaGuardService(config, store, {
+        readQuota: async () => { reads++; return rawQuota(used!); },
+      }, { now: () => now });
+      const initial = await service.quotaStatusForRequest();
+      assert.equal(initial.recommendation, "continue");
+      assert.equal(initial.lanes.secondary?.available, false);
+      for (const age of [30_001, ttl! - 1]) {
+        now = 1_000 + age;
+        const status = await service.quotaStatusForRequest();
+        assert.equal(status.nextRefreshAt, initial.nextRefreshAt);
+        assert.equal(reads, 1);
+      }
+      now = 1_000 + ttl!;
+      await service.quotaStatusForRequest();
+      assert.equal(reads, 2);
+    } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+  }
+});
+
+test("interactive refresh considers either detected lane and current policy overrides", async () => {
+  for (const [primary, reserve, override] of [[100, 20, 0], [20, 95, 0], [20, 100, 0], [60, 20, 30]]) {
+    const directory = mkdtempSync(join(tmpdir(), "quota-guard-status-lanes-"));
+    const path = join(directory, "state.sqlite"), store = new StateStore(path);
+    let now = 1_000, reads = 0;
+    try {
+      const service = new QuotaGuardService(testConfig(path), store, {
+        readQuota: async () => { reads++; return rawQuota(primary!, undefined, { secondaryReserveUsed: reserve! }); },
+      }, { now: () => now });
+      await service.quotaStatusForRequest();
+      if (override) await service.quotaProfile("adjust", override);
+      now += 30_001;
+      await service.quotaStatusForRequest();
+      assert.equal(reads, 2);
+    } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+  }
+});
+
+test("interactive near-limit refresh shares its lease and honors backoff across services", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "quota-guard-status-single-flight-"));
+  const path = join(directory, "state.sqlite"), store = new StateStore(path), otherStore = new StateStore(path);
+  let now = 1_000, reads = 0, release: (() => void) | undefined;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const reader: QuotaReader = { readQuota: async () => {
+    reads++;
+    if (reads === 2) { await gate; throw new GuardError("RATE_LIMIT", "retry later", 120_000); }
+    return rawQuota(85);
+  } };
+  try {
+    const first = new QuotaGuardService(testConfig(path), store, reader, { now: () => now });
+    const second = new QuotaGuardService(testConfig(path), otherStore, reader, { now: () => now });
+    await first.quotaStatusForRequest();
+    now += 30_001;
+    const pending = first.quotaStatusForRequest();
+    assert.equal((await second.quotaStatusForRequest()).refreshInProgress, true);
+    assert.equal((await first.quotaStatusForRequest()).refreshInProgress, true);
+    assert.equal(reads, 2);
+    release?.();
+    const failed = await pending;
+    assert.equal(failed.stale, true);
+    now += 30_001;
+    const blocked = await second.quotaStatusForRequest();
+    assert.equal(blocked.stale, true);
+    assert.equal(blocked.backoffUntil, failed.backoffUntil);
+    assert.equal(reads, 2);
+    now = Date.parse(failed.backoffUntil!);
+    await second.quotaStatusForRequest();
+    assert.equal(reads, 3);
+  } finally { release?.(); store.close(); otherStore.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("concurrent refresh uses a lease instead of a request herd", async () => {
