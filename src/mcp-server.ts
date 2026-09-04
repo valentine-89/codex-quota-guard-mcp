@@ -10,6 +10,7 @@ export const SERVER_INSTRUCTIONS = [
   "Use workspace paths in the Guard host format; Windows-hosted WSL callers must use the wslpath -w result.",
   "For a schedulable defer, pass automationRequest unchanged to the host automation_update tool; do not inspect automations, browse scheduling docs, or rewrite its fixed prompt, then attach only the returned automation ID.",
   "Call quota_status near the start, then call job_preflight with a stable jobId before each bounded substantial segment.",
+  "During a substantial job, call quota_status again at safe checkpoints before starting the next bounded segment; never interrupt an atomic or unsafe operation solely to check quota.",
   "Keep main work on the primary lane; use secondary only when quota_status explicitly reports it available.",
   "Treat allow and caution as admission for that segment, not a reservation. On caution, checkpoint before more substantial work unless quotaPath is weekly_advisory, and disclose mayConsumeCredits when true.",
   "On defer, immediately call defer_until_reset with bounded state. Never schedule when canSchedule is false.",
@@ -60,7 +61,7 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "0.8.1" },
+    { name: "codex-quota-guard-mcp", version: "0.8.2" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 

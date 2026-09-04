@@ -39,7 +39,7 @@ try {
   const upgradedSettings = readManagedSettings(second.settingsPath);
   assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
   assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
-  assert.equal(upgradedSettings.releaseVersion, "0.8.1");
+  assert.equal(upgradedSettings.releaseVersion, "0.8.2");
   const third = runJson("scripts/install.mjs");
   assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
   const text = readFileSync(configPath, "utf8"), config = parse(text);

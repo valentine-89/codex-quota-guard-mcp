@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-05
+
+### Changed
+
+- Server instructions now ask Codex to recheck quota at safe checkpoints between bounded substantial-work segments without interrupting atomic or unsafe operations.
+
 ## [0.8.1] - 2026-09-05
 
 ### Fixed

@@ -1,6 +1,8 @@
-# MCP API 0.8.1
+# MCP API 0.8.2
 
 The public STDIO connector supports stable MCP through `initialize`, `notifications/initialized`, `tools/list`, and `tools/call`. The shared HTTP core also supports MCP `2026-07-28` discovery for internal clients and validates its required routing headers against the request body. Both protocol paths expose the same instructions, eight tool names, schemas, and shared service implementation.
+
+Server instructions ask Codex to recheck quota at safe checkpoints during substantial work before beginning another bounded segment. A quota check must not interrupt an atomic or otherwise unsafe operation.
 
 The server exposes exactly eight tools: `quota_status`, `job_preflight`, `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare`.
 
