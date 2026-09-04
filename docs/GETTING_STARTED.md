@@ -10,6 +10,8 @@ The installer creates managed private state; the retired v0.5 state is not migra
 
 Windows plus WSL must be installed using Windows Node from PowerShell 7 so both use the Windows-hosted singleton. Native macOS and native Linux install separately on their own filesystems.
 
+Early automation recovery is optional and requires Codex to provide its local scheduler endpoint plus an absolute trusted `CODEX_QUOTA_GUARD_SCHEDULER_SERVER`. The installer forwards that environment variable on every supported host; Windows accepts a named pipe and Linux/macOS accept a Unix-domain socket. When the capability is absent, `quota_status.monitor.available` remains false without disabling quota or checkpoint tools.
+
 To remove the registration run `node scripts/uninstall.mjs`. Add `--purge` only when you also intend to delete the validated Guard-owned state.
 
 Portable verification consists of `npm run check`, `npm run acceptance:install`, `npm audit`, and `npm pack --dry-run`. After installation and reconnection, `npm run acceptance:live` verifies the registered connector's stable handshake, eight-tool catalog, and live quota. `npm run acceptance:shared` is a maintainer-only Windows desktop probe that requires a real task ID and inherited scheduler capability.

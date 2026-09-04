@@ -20,7 +20,8 @@ const env = { ...process.env, ...registration.env, CODEX_HOME: home,
 const provision = JSON.parse(execFileSync(process.execPath, [join(root, "scripts", "provision-managed.mjs")],
   { env, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
 const settings = readManagedSettings(provision.settingsPath);
-const forwarded = ["CODEX_APP_TOOLS_PIPE_PATH", "CODEX_MCP_NODE_PATH", "CODEX_THREAD_ID"];
+const forwarded = ["CODEX_APP_TOOLS_PIPE_PATH", "CODEX_MCP_NODE_PATH", "CODEX_THREAD_ID",
+  "CODEX_QUOTA_GUARD_SCHEDULER_SERVER"];
 const newEnvironment = { ...registration.env, CODEX_HOME: home,
   CODEX_QUOTA_GUARD_NODE: settings.nodeExecutable, CODEX_QUOTA_GUARD_MANAGED_SETTINGS: provision.settingsPath };
 if (process.platform === "win32") {

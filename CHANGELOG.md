@@ -4,6 +4,17 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-05
+
+### Added
+
+- Added verified POSIX Unix-domain socket support for the Codex scheduler bridge while retaining Windows named-pipe support.
+
+### Changed
+
+- Windows-hosted Guard now rejects POSIX WSL workspace roots instead of silently resolving them under the current Windows drive.
+- Installer registration now forwards the optional scheduler-server capability on Windows, WSL, and native POSIX hosts.
+
 ## [0.7.5] - 2026-09-05
 
 ### Fixed

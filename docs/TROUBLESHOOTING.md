@@ -28,6 +28,10 @@ Run with PowerShell 7 as the normal user. Do not elevate. The installer changes 
 
 Use the Windows-side installation and Windows-hosted launcher for Windows Codex tasks. Do not mix Linux and Windows settings/SQLite for one profile.
 
+## Monitor unavailable on Windows, WSL, or Linux
+
+`quota_status.monitor.available=false` means the current MCP process did not complete a verified scheduler binding. The host must provide `CODEX_APP_TOOLS_PIPE_PATH`, `CODEX_THREAD_ID`, and an absolute trusted `CODEX_QUOTA_GUARD_SCHEDULER_SERVER`. Windows uses a `\\.\pipe\...` endpoint; Linux/macOS use an absolute Unix-domain socket path. Rerun installation after setting a supported scheduler-server path, then restart or reconnect Codex. Quota and checkpoint tools continue safely when this optional capability is absent.
+
 ## Safe diagnostics
 
 Run `npm run check`, `npm run acceptance:install`, `npm audit`, and inspect only authenticated health/settings paths. Never paste runtime bearer values, auth files, full prompts, responses, or live checkpoints into an issue.

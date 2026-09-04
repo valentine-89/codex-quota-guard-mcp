@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, posix, relative } from "node:path";
 import { parse } from "smol-toml";
 import { RESUME_AUTOMATION_PROMPT, resumeAutomationName } from "./automation.js";
 import type { SchedulerBridge, SchedulerDefinition } from "./monitor.js";
@@ -22,6 +22,13 @@ export interface SchedulerRpc {
 
 interface ContextSchedulerRpc extends SchedulerRpc { verifyContext(taskId: string): Promise<void>; }
 
+export function validSchedulerEndpoint(value: string | undefined,
+  platform: NodeJS.Platform = process.platform): value is string {
+  if (!value || value.length > 1_024 || /[\r\n\0]/.test(value)) return false;
+  if (platform === "win32") return value.startsWith("\\\\.\\pipe\\") && value.length > "\\\\.\\pipe\\".length;
+  return posix.isAbsolute(value);
+}
+
 /** Delegates transport/authorization to the installed OpenAI server; no private IPC. */
 export class DesktopSchedulerRpc implements SchedulerRpc {
   private client: Client | undefined;
@@ -29,7 +36,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
-    const client = new Client({ name: "quota-guard-monitor", version: "0.7.5" }, {
+    const client = new Client({ name: "quota-guard-monitor", version: "0.8.0" }, {
       versionNegotiation: { mode: { pin: "2026-07-28" } },
     });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
@@ -82,15 +89,15 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
 /** Serializes replacement with dispatch; a reconnect never closes an in-flight RPC. */
 export class RenewableSchedulerRpc implements SchedulerRpc {
   private current: ContextSchedulerRpc;
-  private pipe: string | undefined = process.env.CODEX_APP_TOOLS_PIPE_PATH;
   private verifiedPipe: string | undefined;
   private tail: Promise<unknown> = Promise.resolve();
   private stopped = false;
   constructor(private readonly serverPath: string,
-    private readonly factory: (environment: NodeJS.ProcessEnv) => ContextSchedulerRpc = env => new DesktopSchedulerRpc(serverPath, env)) {
+    private readonly factory: (environment: NodeJS.ProcessEnv) => ContextSchedulerRpc = env => new DesktopSchedulerRpc(serverPath, env),
+    private readonly hostPlatform: NodeJS.Platform = process.platform) {
     this.current = factory(process.env);
   }
-  available(): boolean { return !!this.pipe && isAbsolute(this.serverPath) && existsSync(this.serverPath) && !this.stopped; }
+  available(): boolean { return !!this.verifiedPipe && isAbsolute(this.serverPath) && existsSync(this.serverPath) && !this.stopped; }
   private serialize<T>(action: () => Promise<T>): Promise<T> {
     const result = this.tail.then(action); this.tail = result.catch(() => undefined); return result;
   }
@@ -99,8 +106,8 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
     return this.serialize(() => { if (this.stopped) throw new Error("SCHEDULER_CLOSED"); return this.current.call(args, taskId); });
   }
   bind(pipePath: string, taskId: string): Promise<boolean> {
-    // This bridge is Windows-hosted. Never accept URLs, executable paths or remote pipes.
-    if (!pipePath.startsWith("\\\\.\\pipe\\") || pipePath.length > 1024 || /[\r\n\0]/.test(pipePath)
+    // Accept only a local Windows named pipe or POSIX Unix-domain socket inherited from Codex.
+    if (!validSchedulerEndpoint(pipePath, this.hostPlatform)
       || !/^[a-f0-9-]{36}$/i.test(taskId)) return Promise.resolve(false);
     return this.serialize(async () => {
       if (this.stopped) return false;
@@ -108,7 +115,7 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
       const candidate = this.factory({ ...process.env, CODEX_APP_TOOLS_PIPE_PATH: pipePath });
       try { await candidate.verifyContext(taskId); }
       catch { await candidate.close(); return false; }
-      await this.current.close(); this.current = candidate; this.pipe = pipePath; this.verifiedPipe = pipePath;
+      await this.current.close(); this.current = candidate; this.verifiedPipe = pipePath;
       return true;
     });
   }
@@ -170,5 +177,6 @@ export class DesktopSchedulerBridge implements SchedulerBridge {
 }
 
 export function schedulerConfigured(serverPath: string | undefined): boolean {
-  return !!serverPath && isAbsolute(serverPath) && existsSync(serverPath) && !!process.env.CODEX_APP_TOOLS_PIPE_PATH;
+  return !!serverPath && isAbsolute(serverPath) && existsSync(serverPath)
+    && validSchedulerEndpoint(process.env.CODEX_APP_TOOLS_PIPE_PATH);
 }

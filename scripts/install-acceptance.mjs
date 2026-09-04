@@ -41,6 +41,12 @@ try {
   settings = readManagedSettings(first.settingsPath);
   assert.ok(!text.includes(settings.token));
   const registration = config.mcp_servers.codex_quota_guard;
+  assert.ok(registration.env_vars.includes("CODEX_APP_TOOLS_PIPE_PATH"));
+  assert.ok(registration.env_vars.includes("CODEX_QUOTA_GUARD_SCHEDULER_SERVER"));
+  if (process.platform === "win32") {
+    assert.ok(registration.env.WSLENV.split(":").includes("CODEX_APP_TOOLS_PIPE_PATH/w"));
+    assert.ok(registration.env.WSLENV.split(":").includes("CODEX_QUOTA_GUARD_SCHEDULER_SERVER/w"));
+  }
   const connect = async () => {
     const client = new Client({ name: "install-acceptance", version: "1" }, {
       versionNegotiation: { mode: "legacy" },

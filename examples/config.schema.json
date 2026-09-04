@@ -10,7 +10,7 @@
     "codexHome": { "type": "string", "minLength": 1 },
     "codexCommand": { "type": "string", "minLength": 1 },
     "monitorEnabled": { "type": "boolean", "default": true },
-    "schedulerServerPath": { "type": "string", "minLength": 1, "description": "Absolute path to the installed trusted OpenAI codex-app-tools server.mjs. Required with inherited desktop capability to enable monitoring." },
+    "schedulerServerPath": { "type": "string", "minLength": 1, "description": "Absolute path to the installed trusted OpenAI codex-app-tools server.mjs. Required with an inherited Windows named pipe or POSIX Unix-domain socket capability to enable monitoring." },
     "planDefaults": {
       "type": "object",
       "additionalProperties": false,

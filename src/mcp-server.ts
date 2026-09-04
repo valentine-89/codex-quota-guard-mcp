@@ -1,12 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/server";
-import { isAbsolute } from "node:path";
 import * as z from "zod/v4";
 import type { QuotaGuardService } from "./service.js";
 import { toGuardError } from "./errors.js";
+import { isHostWorkspaceRoot } from "./host-path.js";
 import type { CheckpointPayload } from "./types.js";
 
 export const SERVER_INSTRUCTIONS = [
   "Use this server for substantial or long-running work, not for every command or small read.",
+  "Use workspace paths in the Guard host format; Windows-hosted WSL callers must use the wslpath -w result.",
   "For a schedulable defer, pass automationRequest unchanged to the host automation_update tool; do not inspect automations, browse scheduling docs, or rewrite its fixed prompt, then attach only the returned automation ID.",
   "Call quota_status near the start, then call job_preflight with a stable jobId before each bounded substantial segment.",
   "Keep main work on the primary lane; use secondary only when quota_status explicitly reports it available.",
@@ -16,8 +17,9 @@ export const SERVER_INSTRUCTIONS = [
   "Do not poll, force quota refresh, or store credentials, complete prompts, or complete model responses in checkpoints.",
 ].join(" ");
 
-const workspaceRoot = z.string().min(1).max(4_096).refine(isAbsolute, "workspaceRoot must be absolute on this host")
-  .describe("Absolute workspace root path.");
+const workspaceRoot = z.string().min(1).max(4_096)
+  .refine(value => isHostWorkspaceRoot(value), "workspaceRoot must use an absolute path in the Guard host format")
+  .describe("Absolute workspace root in the Guard host format. Windows-hosted WSL callers must pass the wslpath -w result.");
 const taskId = z.string().min(1).max(256).describe("Codex task/thread identifier.");
 const laneId = z.enum(["primary", "secondary", "unknown"]).optional()
   .describe("Quota role, not a model name. Use secondary only when quota_status reports it.");
@@ -58,7 +60,7 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "0.7.5" },
+    { name: "codex-quota-guard-mcp", version: "0.8.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 

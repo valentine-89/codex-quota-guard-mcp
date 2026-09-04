@@ -95,7 +95,7 @@ test("managed bootstrap refuses a wrong listener; binding is authenticated and b
   } finally { await server.close(); await f.close(); }
 });
 
-test("capability renewal serializes dispatch, verifies candidates and retains a good binding on failure", async () => {
+test("capability renewal serializes dispatch, verifies candidates and retains a good Windows binding on failure", async () => {
   const events: string[] = [];
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -104,7 +104,7 @@ test("capability renewal serializes dispatch, verifies candidates and retains a 
     return { ready: async () => {}, close: async () => { events.push(`close:${name}`); },
       call: async () => { events.push(`call:${name}`); await gate; return true; },
       verifyContext: async () => { events.push(`verify:${name}`); if (name === "bad") throw Error("rejected"); } };
-  });
+  }, "win32");
   const task = randomUUID();
   try {
     assert.equal(await rpc.bind("https://invalid", task), false);
@@ -123,4 +123,22 @@ test("capability renewal serializes dispatch, verifies candidates and retains a 
     await rpc.call({}, task);
     assert.equal(events.at(-1), "call:new");
   } finally { release(); await rpc.close(); }
+});
+
+test("Linux scheduler binding accepts only a verified absolute Unix socket path", async () => {
+  const events: string[] = [];
+  const rpc = new RenewableSchedulerRpc(resolve("src/scheduler.ts"), env => ({
+    ready: async () => {}, close: async () => {}, call: async () => true,
+    verifyContext: async () => { events.push(env.CODEX_APP_TOOLS_PIPE_PATH ?? "missing"); },
+  }), "linux");
+  const task = randomUUID();
+  try {
+    assert.equal(rpc.available(), false);
+    assert.equal(await rpc.bind("relative.sock", task), false);
+    assert.equal(await rpc.bind("https://invalid", task), false);
+    assert.equal(await rpc.bind("/run/user/1000/codex-app-tools.sock", "invalid"), false);
+    assert.equal(await rpc.bind("/run/user/1000/codex-app-tools.sock", task), true);
+    assert.equal(rpc.available(), true);
+    assert.deepEqual(events, ["/run/user/1000/codex-app-tools.sock"]);
+  } finally { await rpc.close(); }
 });

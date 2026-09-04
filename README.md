@@ -1,4 +1,4 @@
-# Codex Quota Guard MCP 0.7.5
+# Codex Quota Guard MCP 0.8.0
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
@@ -33,7 +33,7 @@ node scripts/install.mjs
 
 The installer preserves unrelated `config.toml` content, creates a private local bearer and runtime settings, and registers the absolute Node executable with `dist/connector.js`. It does not start a persistent process. Restart or reconnect Codex after installation so it opens the new connector.
 
-On a Windows machine that also uses WSL, run the installer with Windows Node from `pwsh`; both Windows and WSL tasks then use the Windows-hosted core and the same Windows profile. Native Linux and native macOS each use their own local Node, Codex login and state. Do not share Windows login/state with a macOS host.
+On a Windows machine that also uses WSL, run the installer with Windows Node from `pwsh`; both Windows and WSL tasks then use the Windows-hosted core and the same Windows profile. Native Linux and native macOS each use their own local Node, Codex login and state. The early-recovery monitor accepts a verified Windows named pipe or POSIX Unix-domain socket when Codex supplies the scheduler capability. Do not share credential or state directories across hosts.
 
 ## Uninstall
 

@@ -6,6 +6,7 @@ import test from "node:test";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createMcpServer, SERVER_INSTRUCTIONS } from "../src/mcp-server.js";
+import { isHostWorkspaceRoot } from "../src/host-path.js";
 import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
@@ -17,7 +18,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     readQuota: async () => rawQuota(25),
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
-  const client = new Client({ name: "quota-guard-test", version: "0.7.5" }, {
+  const client = new Client({ name: "quota-guard-test", version: "0.8.0" }, {
     versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -26,7 +27,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "legacy");
-    assert.equal(client.getServerVersion()?.version, "0.7.5");
+    assert.equal(client.getServerVersion()?.version, "0.8.0");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
@@ -68,4 +69,12 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("workspace roots cannot be silently reinterpreted across Windows and Linux hosts", () => {
+  assert.equal(isHostWorkspaceRoot("D:\\vsys\\project", "win32"), true);
+  assert.equal(isHostWorkspaceRoot("\\\\server\\share\\project", "win32"), true);
+  assert.equal(isHostWorkspaceRoot("/mnt/d/vsys/project", "win32"), false);
+  assert.equal(isHostWorkspaceRoot("/home/user/project", "linux"), true);
+  assert.equal(isHostWorkspaceRoot("D:\\vsys\\project", "linux"), false);
 });
