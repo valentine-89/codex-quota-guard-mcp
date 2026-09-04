@@ -37,6 +37,7 @@ try {
   assert.ok(text.includes("# preserved"));
   assert.equal(config.mcp_servers.unrelated.command, "never-run");
   assert.ok(config.mcp_servers.codex_quota_guard.args.at(-1).endsWith(`${join("dist", "connector.js")}`));
+  assert.equal(config.mcp_servers.codex_quota_guard.default_tools_approval_mode, "approve");
   settings = readManagedSettings(first.settingsPath);
   assert.ok(!text.includes(settings.token));
   const registration = config.mcp_servers.codex_quota_guard;
@@ -47,9 +48,14 @@ try {
     await client.connect(new StdioClientTransport({ command: registration.command, args: registration.args,
       env: { ...getDefaultEnvironment(), ...registration.env }, stderr: "pipe" }));
     assert.equal((await client.listTools()).tools.length, 8);
-    assert.equal((await client.callTool({ name: "quota_status", arguments: {} })).isError, undefined);
   };
   await Promise.all(Array.from({ length: 6 }, connect));
+  // The lease-free discovery core is allowed to stop before the model chooses a
+  // tool. Every capability call must therefore revalidate and restart it.
+  await new Promise(done => setTimeout(done, 6_000));
+  await Promise.all(clients.map(async client => {
+    assert.equal((await client.callTool({ name: "quota_status", arguments: {} })).isError, undefined);
+  }));
   const health = await managedHealth(settings);
   assert.equal(health?.liveClients, 6); assert.equal(health?.mode, "shared-http");
   const pid = health.pid;

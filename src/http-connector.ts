@@ -60,11 +60,11 @@ async function main() {
   let lastBind = 0;
   let boundTask: string | undefined;
   let preparing: Promise<void> | undefined;
-  const prepare = (taskId = process.env.CODEX_THREAD_ID, bindDesktop = false): Promise<void> => {
+  const prepare = (taskId = process.env.CODEX_THREAD_ID, bindDesktop = false, forceHealth = false): Promise<void> => {
     if (!settingsPath) return Promise.resolve();
     // A task ID learned from a later tool call still needs a binding attempt.
-    if (preparing) return preparing.then(() => prepare(taskId, bindDesktop));
-    const checkHealth = !managed || Date.now() - lastHealth >= 10_000;
+    if (preparing) return preparing.then(() => prepare(taskId, bindDesktop, forceHealth));
+    const checkHealth = forceHealth || !managed || Date.now() - lastHealth >= 10_000;
     const checkBinding = bindDesktop && taskId && (taskId !== boundTask || Date.now() - lastBind >= 60_000);
     if (!checkHealth && !checkBinding) return Promise.resolve();
     preparing = (async () => {
@@ -135,7 +135,8 @@ async function main() {
     active++;
     try {
       const params = message.params as { arguments?: { taskId?: string } } | undefined;
-      await prepare(params?.arguments?.taskId ?? process.env.CODEX_THREAD_ID, method === "tools/call");
+      const capabilityCall = method === "tools/call";
+      await prepare(params?.arguments?.taskId ?? process.env.CODEX_THREAD_ID, capabilityCall, capabilityCall);
       // Discovery and the stable handshake must not count as a live Codex task
       // or delay shared-core shutdown. Acquire a lease only on a capability call.
       if (method !== "server/discover" && method !== "initialize"

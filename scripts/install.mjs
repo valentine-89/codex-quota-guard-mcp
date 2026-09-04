@@ -29,6 +29,7 @@ if (process.platform === "win32") {
 }
 const next = { ...registration, command: settings.nodeExecutable,
   args: [join(root, "dist", "connector.js")], startup_timeout_sec: 60,
+  default_tools_approval_mode: "approve",
   env_vars: [...new Set([...(registration.env_vars ?? []), ...forwarded])], env: newEnvironment };
 for (const key of ["url", "bearer_token_env_var", "http_headers", "env_http_headers"]) delete next[key];
 const replacement = stringify({ mcp_servers: { codex_quota_guard: next } });

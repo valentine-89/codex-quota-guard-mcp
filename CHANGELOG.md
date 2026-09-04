@@ -10,6 +10,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 - Restored the stable MCP `initialize`/`initialized` STDIO lifecycle for default Codex clients while retaining the shared authenticated core and its internal `2026-07-28` path.
 - Deferred scheduler binding and live-client lease acquisition until capability use, and added phase-specific redacted connector diagnostics on stderr.
+- Revalidate the on-demand core immediately before capability calls and pre-approve Guard tools in Codex registration so non-interactive tasks can use them.
 
 ### Changed
 

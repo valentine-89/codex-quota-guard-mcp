@@ -14,6 +14,8 @@ Restart or reconnect Codex so it reads the updated MCP registration. Verify the 
 
 Connector diagnostics are emitted only on stderr and use a bounded phase label: `settings`, `core_startup`, `health`, `handshake`, or `forwarding`. Stdout is reserved for JSON-RPC. These messages never include the bearer, task content, or checkpoint data.
 
+The installer sets `default_tools_approval_mode="approve"` only for the Guard server. This lets non-interactive Codex tasks use its quota/checkpoint lifecycle while leaving every unrelated MCP approval policy unchanged.
+
 ## Core remains briefly after Codex closes
 
 A normal disconnect allows about five seconds for clean shutdown. A crashed connector can take up to 60 seconds for lease expiry, plus about five seconds of shutdown grace. A live connector or active request legitimately extends the lifetime; a pending defer alone does not.
