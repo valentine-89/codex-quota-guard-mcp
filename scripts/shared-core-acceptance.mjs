@@ -99,7 +99,7 @@ if (process.argv.includes("--child")) {
     assert.equal(scheduler.schedulerReadAfterDisconnect, true);
     const interop = process.argv.includes("--wsl");
     const connector = new Client({ name: "shared-connector-live", version: "1" }, {
-      versionNegotiation: { mode: { pin: "2026-07-28" } },
+      versionNegotiation: { mode: "legacy" },
     }); clients.push(connector);
     let command = process.execPath, args = [resolve("dist/connector.js")];
     if (interop) {

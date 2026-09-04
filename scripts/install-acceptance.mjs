@@ -42,11 +42,12 @@ try {
   const registration = config.mcp_servers.codex_quota_guard;
   const connect = async () => {
     const client = new Client({ name: "install-acceptance", version: "1" }, {
-      versionNegotiation: { mode: { pin: "2026-07-28" } },
+      versionNegotiation: { mode: "legacy" },
     }); clients.push(client);
     await client.connect(new StdioClientTransport({ command: registration.command, args: registration.args,
       env: { ...getDefaultEnvironment(), ...registration.env }, stderr: "pipe" }));
     assert.equal((await client.listTools()).tools.length, 8);
+    assert.equal((await client.callTool({ name: "quota_status", arguments: {} })).isError, undefined);
   };
   await Promise.all(Array.from({ length: 6 }, connect));
   const health = await managedHealth(settings);

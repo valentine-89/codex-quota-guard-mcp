@@ -112,17 +112,20 @@ test("HTTP rejects missing/bad authentication, hostile Origin/Host, query paths 
   } finally { await f.close(); }
 });
 
-test("HTTP is strict MCP 2026-07-28: legacy initialization and missing routing headers are rejected", async () => {
+test("HTTP accepts stable initialization while modern requests still require routing headers", async () => {
   const f = await fixture();
-  const headers = { Authorization: `Bearer ${f.token}`, "Content-Type": "application/json", Accept: "application/json" };
+  const headers = { Authorization: `Bearer ${f.token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
   try {
     const legacy = await fetch(f.http.url, { method: "POST", headers, body: JSON.stringify({
       jsonrpc: "2.0", id: 1, method: "initialize", params: {
         protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "legacy-test", version: "1" },
       },
     }) });
-    assert.equal(legacy.status, 400);
-    assert.equal(((await legacy.json() as { error: { code: number } }).error.code), -32022);
+    assert.equal(legacy.status, 200);
+    const legacyBody = await legacy.text();
+    const legacyData = legacyBody.split(/\r?\n/).find(line => line.startsWith("data:"));
+    assert.ok(legacyData);
+    assert.equal(((JSON.parse(legacyData.slice(5)) as { result: { protocolVersion: string } }).result.protocolVersion), "2025-11-25");
 
     const missingRoute = await fetch(f.http.url, { method: "POST", headers: {
       ...headers, "MCP-Protocol-Version": "2026-07-28",
@@ -201,17 +204,18 @@ test("wire-only stdio connector uses existing HTTP service and exits on EOF", { 
   const f = await fixture();
   const env = { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token };
   const client = new Client({ name: "connector-test", version: "1" }, {
-    versionNegotiation: { mode: { pin: "2026-07-28" } },
+    versionNegotiation: { mode: "legacy" },
   });
   try {
     const transport = new StdioClientTransport({ command: process.execPath,
       args: ["--import", "tsx", resolve("src/http-connector.ts")], env, stderr: "pipe" });
     await client.connect(transport);
-    assert.equal(f.liveClients(), 0, "disposable server/discover probes must not acquire a live-client lease");
+    assert.equal(f.liveClients(), 0, "stable handshake must not acquire a live-client lease");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.equal((await client.listTools()).tools.length, 8);
-    assert.equal(f.liveClients(), 1);
+    assert.equal(f.liveClients(), 0, "tool discovery must not acquire a live-client lease");
     await client.callTool({ name: "quota_status", arguments: {} });
+    assert.equal(f.liveClients(), 1);
     await client.close();
     for (let i = 0; i < 100 && f.liveClients(); i++) await delay(10);
     assert.equal(f.liveClients(), 0);
@@ -223,6 +227,35 @@ test("wire-only stdio connector uses existing HTTP service and exits on EOF", { 
     assert.equal(await exit, 0);
     assert.equal((await f.connect()).getServerVersion()?.name, "codex-quota-guard-mcp");
   } finally { await client.close(); await f.close(); }
+});
+
+test("stdio connector retains modern discovery and reports missing settings only on stderr", { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  const env = { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token };
+  const modern = new Client({ name: "modern-connector-test", version: "1" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } },
+  });
+  try {
+    await modern.connect(new StdioClientTransport({ command: process.execPath,
+      args: ["--import", "tsx", resolve("src/http-connector.ts")], env, stderr: "pipe" }));
+    assert.equal((await modern.listTools()).tools.length, 8);
+    assert.equal(f.liveClients(), 0);
+    await modern.callTool({ name: "quota_status", arguments: {} });
+    assert.equal(f.liveClients(), 1);
+  } finally { await modern.close(); await f.close(); }
+
+  const child = spawn(process.execPath, ["--import", "tsx", resolve("src/http-connector.ts")], {
+    env: { ...process.env, CODEX_QUOTA_GUARD_MANAGED_SETTINGS: "", CODEX_QUOTA_GUARD_HTTP_URL: "", CODEX_QUOTA_GUARD_HTTP_TOKEN: "" },
+    windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stdin.end();
+  let stdout = "", stderr = "";
+  child.stdout.setEncoding("utf8").on("data", data => { stdout += data; });
+  child.stderr.setEncoding("utf8").on("data", data => { stderr += data; });
+  const code = await new Promise<number | null>(resolveExit => child.once("exit", resolveExit));
+  assert.equal(code, 1);
+  assert.equal(stdout, "");
+  assert.equal(stderr, "quota-guard[settings]: CONNECTOR_SETTINGS_MISSING\n");
 });
 
 test("OS releases singleton lock after the owning process crashes", { timeout: 10_000 }, async () => {

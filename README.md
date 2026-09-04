@@ -67,9 +67,11 @@ The MCP publishes concise server-wide `instructions` for portable cross-tool gui
 
 For a schedulable defer, the Guard returns a complete same-task one-shot `automationRequest` with the fixed `Continue the work.` prompt. Pass it unchanged to the host automation tool and attach only the returned ID; no automation inventory scan, scheduler-documentation lookup, or model-authored prompt is required.
 
-The registered STDIO connector and its authenticated loopback core require MCP `2026-07-28`. They use `server/discover`, per-request metadata, and strict modern-only Streamable HTTP routing; the removed `initialize`/`initialized` lifecycle is not accepted or emulated.
+The registered STDIO connector supports the stable MCP `initialize`/`initialized` lifecycle used by Codex by default. The authenticated loopback core also retains MCP `2026-07-28` support for internal clients. Capability discovery does not read quota, bind the desktop scheduler, or acquire a live-client lease; those actions remain on demand when a tool capability is called.
 
 `quota_status.monitor` reports `runtimeMode="shared-http"`, `requiresLiveClientConnection=true`, and `lifecycleMode="codex-bound"`.
+
+Verification has three distinct levels: a healthy authenticated `/health` response proves only that the shared core is running; a successful stable handshake and an eight-tool catalog in a fresh Codex thread prove that Desktop loaded the MCP; a Guard tool call recorded for that same thread proves that the agent used it. Do not infer the latter two from core health or an independent smoke test.
 
 ## Verification
 

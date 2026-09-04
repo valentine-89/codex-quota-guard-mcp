@@ -10,22 +10,22 @@ import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
-test("MCP 2026-07-28 discovery exposes instructions, adaptive profile, and defer lifecycle tools", async () => {
+test("stable MCP discovery exposes instructions, adaptive profile, and defer lifecycle tools", async () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-mcp-"));
   const store = new StateStore(join(directory, "state.sqlite"));
   const service = new QuotaGuardService(testConfig(join(directory, "state.sqlite")), store, {
     readQuota: async () => rawQuota(25),
   }, { now: () => 1_000 });
-  const handler = createMcpHandler(() => createMcpServer(service), { legacy: "reject" });
+  const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
   const client = new Client({ name: "quota-guard-test", version: "0.7.4" }, {
-    versionNegotiation: { mode: { pin: "2026-07-28" } },
+    versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
     fetch: (url, init) => handler.fetch(new Request(url, init)),
   });
   try {
     await client.connect(transport);
-    assert.equal(client.getProtocolEra(), "modern");
+    assert.equal(client.getProtocolEra(), "legacy");
     assert.equal(client.getServerVersion()?.version, "0.7.4");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     const tools = await client.listTools();

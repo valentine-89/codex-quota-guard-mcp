@@ -4,6 +4,37 @@ import { once } from "node:events";
 import { ProcessLifetime, parentIsAlive } from "./lifetime.js";
 import { bindManagedDesktop, ensureManagedCore, managedUrl, type ManagedSettings } from "./managed.js";
 
+type FailurePhase = "settings" | "core_startup" | "health" | "handshake" | "forwarding";
+
+const failureCodes = new Map<string, FailurePhase>([
+  ["MANAGED_SETTINGS_PATH_INVALID", "settings"], ["MANAGED_SETTINGS_UNSAFE", "settings"],
+  ["MANAGED_SETTINGS_NOT_PRIVATE", "settings"], ["MANAGED_SETTINGS_INVALID", "settings"],
+  ["CONNECTOR_SETTINGS_MISSING", "settings"], ["INVALID_LOCAL_ENDPOINT", "settings"],
+  ["MANAGED_CORE_START_FAILED", "core_startup"],
+  ["MANAGED_CORE_UNAVAILABLE", "core_startup"], ["MANAGED_CORE_UNREACHABLE", "health"],
+  ["MANAGED_CORE_AUTH_FAILED", "health"], ["MANAGED_CORE_IDENTITY_MISMATCH", "health"],
+  ["CLIENT_LEASE_REGISTER_FAILED", "forwarding"], ["CORE_RESPONSE_INVALID", "forwarding"],
+  ["CORE_UNAVAILABLE", "forwarding"], ["INVALID_ROUTING_NAME", "forwarding"],
+]);
+
+function diagnose(error: unknown, fallback: FailurePhase): void {
+  const raw = error instanceof Error ? error.message : "UNKNOWN_FAILURE";
+  const code = failureCodes.has(raw) ? raw : "UNEXPECTED_FAILURE";
+  process.stderr.write(`quota-guard[${failureCodes.get(raw) ?? fallback}]: ${code}\n`);
+}
+
+function decodeProtocolResponse(contentType: string | null, body: string): unknown[] {
+  if (!body) return [];
+  if (!contentType?.toLowerCase().startsWith("text/event-stream")) return [JSON.parse(body)];
+  const messages: unknown[] = [];
+  for (const block of body.split(/\r?\n\r?\n/)) {
+    const data = block.split(/\r?\n/).filter(line => line.startsWith("data:"))
+      .map(line => line.slice(5).trimStart()).join("\n");
+    if (data) messages.push(JSON.parse(data));
+  }
+  return messages;
+}
+
 async function main() {
   const parent = process.ppid;
   const controller = new AbortController();
@@ -21,17 +52,20 @@ async function main() {
     return action === "register" ? typeof leaseId === "string" : true;
   };
   const settingsPath = process.env.CODEX_QUOTA_GUARD_MANAGED_SETTINGS;
+  if (!settingsPath && (!process.env.CODEX_QUOTA_GUARD_HTTP_URL || !process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN)) {
+    throw new Error("CONNECTOR_SETTINGS_MISSING");
+  }
   let managed: ManagedSettings | undefined;
   let lastHealth = 0;
   let lastBind = 0;
   let boundTask: string | undefined;
   let preparing: Promise<void> | undefined;
-  const prepare = (taskId = process.env.CODEX_THREAD_ID): Promise<void> => {
+  const prepare = (taskId = process.env.CODEX_THREAD_ID, bindDesktop = false): Promise<void> => {
     if (!settingsPath) return Promise.resolve();
     // A task ID learned from a later tool call still needs a binding attempt.
-    if (preparing) return preparing.then(() => prepare(taskId));
+    if (preparing) return preparing.then(() => prepare(taskId, bindDesktop));
     const checkHealth = !managed || Date.now() - lastHealth >= 10_000;
-    const checkBinding = taskId && (taskId !== boundTask || Date.now() - lastBind >= 60_000);
+    const checkBinding = bindDesktop && taskId && (taskId !== boundTask || Date.now() - lastBind >= 60_000);
     if (!checkHealth && !checkBinding) return Promise.resolve();
     preparing = (async () => {
       if (checkHealth) {
@@ -71,7 +105,7 @@ async function main() {
       controller.abort();
     },
     exit: code => { process.exitCode = code; process.stdin.pause(); } });
-  const protocolVersion = "2026-07-28";
+  let protocolVersion = "2025-11-25";
   let active = 0, buffer = Buffer.alloc(0);
   let output = Promise.resolve(), queuedOutput = 0;
   const write = (message: unknown) => {
@@ -91,7 +125,7 @@ async function main() {
     const id = message.id;
     const method = message.method;
     if (typeof method !== "string" || !method || /[\r\n\0]/.test(method)) {
-      if (id !== undefined) await write({ jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid modern MCP request" } });
+      if (id !== undefined) await write({ jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid MCP request" } });
       return;
     }
     if (active >= 32) {
@@ -101,34 +135,45 @@ async function main() {
     active++;
     try {
       const params = message.params as { arguments?: { taskId?: string } } | undefined;
-      await prepare(params?.arguments?.taskId ?? process.env.CODEX_THREAD_ID);
-      // SDK v2 probes STDIO on a disposable sibling. Discovery alone must not
-      // count as a live Codex task or delay shared-core shutdown for 60 seconds.
-      if (method !== "server/discover" && !leaseId && !await updateLease("register")) {
+      await prepare(params?.arguments?.taskId ?? process.env.CODEX_THREAD_ID, method === "tools/call");
+      // Discovery and the stable handshake must not count as a live Codex task
+      // or delay shared-core shutdown. Acquire a lease only on a capability call.
+      if (method !== "server/discover" && method !== "initialize"
+        && method !== "notifications/initialized" && method !== "tools/list"
+        && !leaseId && !await updateLease("register")) {
         throw new Error("CLIENT_LEASE_REGISTER_FAILED");
       }
       const requestParams = message.params as Record<string, unknown> | undefined;
+      const requestMeta = requestParams?._meta as Record<string, unknown> | undefined;
+      const claimedVersion = requestMeta?.["io.modelcontextprotocol/protocolVersion"];
+      const requestProtocolVersion = method === "server/discover" ? "2026-07-28"
+        : typeof claimedVersion === "string" ? claimedVersion : protocolVersion;
       const routedName = typeof requestParams?.name === "string" ? requestParams.name
         : typeof requestParams?.uri === "string" ? requestParams.uri
           : typeof requestParams?.taskId === "string" ? requestParams.taskId : undefined;
       if (routedName && /[\r\n\0]/.test(routedName)) throw new Error("INVALID_ROUTING_NAME");
       const headers: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream", "MCP-Protocol-Version": protocolVersion, "Mcp-Method": method };
+        Accept: "application/json, text/event-stream", "MCP-Protocol-Version": requestProtocolVersion, "Mcp-Method": method };
       if (routedName) headers["Mcp-Name"] = routedName;
       const response = await fetch(url, { method: "POST", redirect: "error", headers,
         body: JSON.stringify(message), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]) });
       const responseText = await response.text();
-      let result: unknown;
-      if (responseText) {
-        try { result = JSON.parse(responseText); }
-        catch { throw new Error("CORE_RESPONSE_INVALID"); }
+      let results: unknown[];
+      try { results = decodeProtocolResponse(response.headers.get("content-type"), responseText); }
+      catch { throw new Error("CORE_RESPONSE_INVALID"); }
+      if (!response.ok && results.length === 0) throw new Error("CORE_UNAVAILABLE");
+      if (method === "initialize") {
+        const responseMessage = results.find(item => item !== null && typeof item === "object") as
+          { result?: { protocolVersion?: unknown } } | undefined;
+        const negotiated = responseMessage?.result?.protocolVersion;
+        if (typeof negotiated === "string") protocolVersion = negotiated;
       }
-      if (!response.ok && result === undefined) throw new Error("CORE_UNAVAILABLE");
-      if (result !== undefined) await write(result);
-      if (response.ok || result !== undefined) lifetime.markReady();
-    } catch {
+      for (const result of results) await write(result);
+      if (method === "server/discover" || method === "notifications/initialized") lifetime.markReady();
+    } catch (error) {
       lastHealth = 0;
       lastBind = 0;
+      diagnose(error, method === "initialize" || method === "notifications/initialized" ? "handshake" : "forwarding");
       // Never retry mutating calls automatically: response loss is not proof of non-execution.
       if (!controller.signal.aborted && id !== undefined) await write({ jsonrpc: "2.0", id,
         error: { code: -32000, message: "Shared core unavailable or response unconfirmed; no fallback process was started" } });
@@ -152,4 +197,4 @@ async function main() {
   process.once("SIGTERM", () => lifetime.stop("signal"));
   if (process.stdin.destroyed || process.stdin.readableEnded) lifetime.stop("stdin_close");
 }
-main().catch(() => { process.stderr.write("quota-guard: connector requires an authenticated loopback HTTP core\n"); process.exit(1); });
+main().catch(error => { diagnose(error, "settings"); process.exit(1); });

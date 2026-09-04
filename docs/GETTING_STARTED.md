@@ -12,4 +12,6 @@ Windows plus WSL must be installed using Windows Node from PowerShell 7 so both 
 
 To remove the registration run `node scripts/uninstall.mjs`. Add `--purge` only when you also intend to delete the validated Guard-owned state.
 
-Portable verification consists of `npm run check`, `npm run acceptance:install`, `npm audit`, and `npm pack --dry-run`. After installation and reconnection, `npm run acceptance:live` verifies the registered connector and live quota. `npm run acceptance:shared` is a maintainer-only Windows desktop probe that requires a real task ID and inherited scheduler capability.
+Portable verification consists of `npm run check`, `npm run acceptance:install`, `npm audit`, and `npm pack --dry-run`. After installation and reconnection, `npm run acceptance:live` verifies the registered connector's stable handshake, eight-tool catalog, and live quota. `npm run acceptance:shared` is a maintainer-only Windows desktop probe that requires a real task ID and inherited scheduler capability.
+
+Treat verification as three separate gates: authenticated health means the core runs; the stable handshake and eight-tool catalog in a fresh thread mean Desktop loaded Guard; a same-thread tool-call record means the agent used Guard. An independent acceptance client cannot by itself prove the last two gates.

@@ -28,7 +28,7 @@ transport.stderr?.on("data", data => {
   if (process.env.QUOTA_SMOKE_DEBUG === "1") process.stderr.write(data);
 });
 const client = new Client({ name: "quota-registered-smoke", version: "1" }, {
-  versionNegotiation: { mode: { pin: "2026-07-28" } },
+  versionNegotiation: { mode: "legacy" },
 });
 const call = async (name, args) => {
   const result = await client.callTool({ name, arguments: args });

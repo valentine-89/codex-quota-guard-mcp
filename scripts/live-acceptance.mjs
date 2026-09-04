@@ -66,7 +66,7 @@ const transport = new StdioClientTransport({
 });
 const packageVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 const client = new Client({ name: "codex-quota-guard-live-acceptance", version: packageVersion }, {
-  versionNegotiation: { mode: { pin: "2026-07-28" } },
+  versionNegotiation: { mode: "legacy" },
 });
 
 try {

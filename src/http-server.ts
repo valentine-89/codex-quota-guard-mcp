@@ -30,7 +30,9 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
   const sockets = new Set<Socket>();
   const work = new Set<Promise<void>>();
   const protocolHandler = createMcpHandler(createProtocol, {
-    legacy: "reject",
+    // The shared HTTP core accepts stateless stable requests from the public
+    // connector while modern clients continue to use per-request discovery.
+    legacy: "stateless",
   });
   const reply = (res: ServerResponse, status: number, body: object = {}) => {
     if (!res.destroyed && !res.writableEnded) {

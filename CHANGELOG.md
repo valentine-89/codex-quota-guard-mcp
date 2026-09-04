@@ -4,6 +4,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored the stable MCP `initialize`/`initialized` STDIO lifecycle for default Codex clients while retaining the shared authenticated core and its internal `2026-07-28` path.
+- Deferred scheduler binding and live-client lease acquisition until capability use, and added phase-specific redacted connector diagnostics on stderr.
+
+### Changed
+
+- Moved public smoke and acceptance clients back to stable protocol negotiation and documented the separate core-running, Desktop-loaded, and agent-used verification levels.
+
 ## [0.7.4] - 2026-09-03
 
 ### Changed
