@@ -1,4 +1,4 @@
-# Codex Quota Guard MCP 0.8.2
+# Codex Quota Guard MCP 1.0.0
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
@@ -31,6 +31,14 @@ npm run check
 node scripts/install.mjs
 ```
 
+Automatic use of an already-banked Codex reset is opt-in. To record standing authorization in the local Guard policy, install with:
+
+```powershell
+node scripts/install.mjs --enable-auto-reset
+```
+
+This never buys resets or usage credits. It only lets a compatible Codex agent act on a Guard recommendation when a valid banked reset is already reported. The default remains disabled.
+
 The installer preserves unrelated `config.toml` content, creates a private local bearer and runtime settings, and registers the absolute Node executable with `dist/connector.js`. It does not start a persistent process. Restart or reconnect Codex after installation so it opens the new connector.
 
 On a Windows machine that also uses WSL, run the installer with Windows Node from `pwsh`; both Windows and WSL tasks then use the Windows-hosted core and the same Windows profile. Native Linux and native macOS each use their own local Node, Codex login and state. The early-recovery monitor accepts a verified Windows named pipe or POSIX Unix-domain socket when Codex supplies the scheduler capability. Do not share credential or state directories across hosts.
@@ -55,15 +63,19 @@ Both modes preserve unrelated Codex configuration and write a configuration back
 
 The public contract has eight tools:
 
-- `quota_status`: call near the beginning of long work.
-- `job_preflight`: call once, with a stable `jobId`, before each substantial token-consuming segment.
+- `quota_status`: call near the beginning of long work with `agentProtocol="auto-reset-v1"`.
+- `job_preflight`: call with the same protocol marker and a stable `jobId` before each substantial token-consuming segment.
 - `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare` support policy and controlled resume.
 
 Do not call the Guard before every shell command, small file read, or trivial edit. No tool accepts credentials, a force-refresh flag, or a model name.
 
+Version 1 requires an auto-reset-aware agent. When enabled, `quota_status.resetCredit.recommendation` is emitted only for a fresh, known account with a valid banked reset, weekly remaining quota at or below Free/Go 5%, Plus 2%, or another recognized plan 1%, and a weekly reset more than 72 hours away. The agent calls the host `consume_usage_reset` tool with the exact returned idempotency key without asking again, then reports the exact result in `quota_status.resetFollowup`. Missing reset-credit data is treated as zero available resets.
+
+After a definitive reset result, the Guard performs proof-bound rechecks after 3, 5, and 10 additional seconds. It verifies a changed weekly reset epoch or increased remaining percentage. If propagation is still not visible after 18 seconds, the epoch remains consumed and cannot produce another reset recommendation; later ordinary status calls continue bounded revalidation.
+
 Ordinary quota refresh remains caller-driven. An explicit `quota_status` request may read the current value once the previous successful read is more than 30 seconds old, but only when a detected quota lane is already in caution/defer state. Healthy quota retains the adaptive TTL. This bounded path still obeys the shared refresh lease and backoff and is not exposed as a force-refresh option. With no request, no new background reader runs.
 
-The MCP publishes concise server-wide `instructions` for portable cross-tool guidance. Individual tool descriptions remain self-contained, while the optional [Codex AGENTS snippet](examples/AGENTS-snippet.md) adds host-specific enforcement, Windows/WSL path handling, and heartbeat integration for Codex clients that support those features.
+The MCP publishes server-wide `instructions` containing the automatic reset sequence. No global AGENTS file is modified. Individual tool descriptions remain self-contained, while the optional [Codex AGENTS snippet](examples/AGENTS-snippet.md) documents the same host-specific workflow, Windows/WSL path handling, and heartbeat integration.
 
 For a schedulable defer, the Guard returns a complete same-task one-shot `automationRequest` with the fixed `Continue the work.` prompt. Pass it unchanged to the host automation tool and attach only the returned ID; no automation inventory scan, scheduler-documentation lookup, or model-authored prompt is required.
 

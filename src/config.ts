@@ -27,6 +27,21 @@ const configSchema = z.object({
   appServerTimeoutMs: z.number().int().min(1_000).max(120_000).default(15_000),
   leaseDurationMs: z.number().int().min(5_000).max(120_000).default(30_000),
   resetGraceMs: z.number().int().min(0).max(300_000).default(30_000),
+  automaticWeeklyReset: z.object({
+    enabled: z.boolean().default(false),
+    thresholds: z.object({
+      freeGo: z.number().min(1).max(50).default(5),
+      plus: z.number().min(1).max(50).default(2),
+      higher: z.number().min(1).max(50).default(1),
+    }).strict().default({ freeGo: 5, plus: 2, higher: 1 }),
+    minimumTimeToResetMs: z.number().int().min(60_000).max(604_800_000).default(259_200_000),
+    recheckDelaysMs: z.tuple([
+      z.number().int().min(1_000).max(60_000),
+      z.number().int().min(1_000).max(60_000),
+      z.number().int().min(1_000).max(60_000),
+    ]).default([3_000, 5_000, 10_000]),
+  }).strict().default({ enabled: false, thresholds: { freeGo: 5, plus: 2, higher: 1 },
+    minimumTimeToResetMs: 259_200_000, recheckDelaysMs: [3_000, 5_000, 10_000] }),
   ttlMs: z.object({
     high: z.number().int().min(60_000).default(900_000),
     medium: z.number().int().min(30_000).default(300_000),
@@ -63,6 +78,12 @@ export interface GuardConfig {
   appServerTimeoutMs: number;
   leaseDurationMs: number;
   resetGraceMs: number;
+  automaticWeeklyReset: {
+    enabled: boolean;
+    thresholds: { freeGo: number; plus: number; higher: number };
+    minimumTimeToResetMs: number;
+    recheckDelaysMs: [number, number, number];
+  };
   ttlMs: { high: number; medium: number; warning: number; low: number };
 }
 

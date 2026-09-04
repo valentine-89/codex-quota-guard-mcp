@@ -39,9 +39,12 @@ try {
   const upgradedSettings = readManagedSettings(second.settingsPath);
   assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
   assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
-  assert.equal(upgradedSettings.releaseVersion, "0.8.2");
+  assert.equal(upgradedSettings.releaseVersion, "1.0.0");
   const third = runJson("scripts/install.mjs");
   assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
+  const optedIn = runJson("scripts/install.mjs", ["--enable-auto-reset"]);
+  assert.equal(optedIn.automaticWeeklyResetEnabled, true);
+  assert.equal(JSON.parse(readFileSync(upgradedSettings.guardConfig, "utf8")).automaticWeeklyReset.enabled, true);
   const text = readFileSync(configPath, "utf8"), config = parse(text);
   assert.ok(text.includes("# preserved"));
   assert.equal(config.mcp_servers.unrelated.command, "never-run");
@@ -69,7 +72,7 @@ try {
   // tool. Every capability call must therefore revalidate and restart it.
   await new Promise(done => setTimeout(done, 6_000));
   await Promise.all(clients.map(async client => {
-    assert.equal((await client.callTool({ name: "quota_status", arguments: {} })).isError, undefined);
+    assert.equal((await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } })).isError, undefined);
   }));
   const health = await managedHealth(settings);
   assert.equal(health?.liveClients, 6); assert.equal(health?.mode, "shared-http");

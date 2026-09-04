@@ -18,7 +18,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     readQuota: async () => rawQuota(25),
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
-  const client = new Client({ name: "quota-guard-test", version: "0.8.2" }, {
+  const client = new Client({ name: "quota-guard-test", version: "1.0.0" }, {
     versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -27,7 +27,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "legacy");
-    assert.equal(client.getServerVersion()?.version, "0.8.2");
+    assert.equal(client.getServerVersion()?.version, "1.0.0");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.match(client.getInstructions() ?? "", /safe checkpoints/);
     assert.match(client.getInstructions() ?? "", /never interrupt an atomic or unsafe operation/);
@@ -42,21 +42,29 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
       "quota_status",
       "resume_prepare",
     ]);
-    const response = await client.callTool({ name: "quota_status", arguments: {} });
+    const oldAgent = await client.callTool({ name: "quota_status", arguments: {} });
+    assert.equal(oldAgent.isError, true);
+    assert.match(JSON.stringify(oldAgent.content), /AUTO_RESET_AGENT_REQUIRED/);
+    const oldPreflight = await client.callTool({ name: "job_preflight", arguments: {
+      workspaceRoot: directory, taskId: "task", jobId: "old", jobClass: "small", description: "old agent",
+    } });
+    assert.equal(oldPreflight.isError, true);
+    assert.match(JSON.stringify(oldPreflight.content), /AUTO_RESET_AGENT_REQUIRED/);
+    const response = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
     const structured = response.structuredContent as Record<string, unknown>;
     const fiveHour = structured.fiveHour as Record<string, unknown>;
     assert.equal(fiveHour.remainingPercent, 75);
     assert.equal(structured.source, "codex-app-server");
     assert.equal((structured.profile as Record<string, unknown>).baselineRemainingPercent, 10);
     const missingId = await client.callTool({ name: "job_preflight", arguments: {
-      workspaceRoot: directory, taskId: "task", jobClass: "small", description: "missing job ID",
+      agentProtocol: "auto-reset-v1", workspaceRoot: directory, taskId: "task", jobClass: "small", description: "missing job ID",
     } });
     assert.equal(missingId.isError, true);
     const relativePath = await client.callTool({ name: "job_preflight", arguments: {
-      workspaceRoot: "relative", taskId: "task", jobId: "one", jobClass: "small", description: "invalid path",
+      agentProtocol: "auto-reset-v1", workspaceRoot: "relative", taskId: "task", jobId: "one", jobClass: "small", description: "invalid path",
     } });
     assert.equal(relativePath.isError, true);
-    const job = { workspaceRoot: directory, taskId: "task", jobId: "one", jobClass: "small", description: "inspection" };
+    const job = { agentProtocol: "auto-reset-v1", workspaceRoot: directory, taskId: "task", jobId: "one", jobClass: "small", description: "inspection" };
     const first = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
     const retry = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
     assert.equal(first.admissionRecorded, true);

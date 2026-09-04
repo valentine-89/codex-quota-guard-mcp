@@ -1,10 +1,16 @@
-# MCP API 0.8.2
+# MCP API 1.0.0
 
 The public STDIO connector supports stable MCP through `initialize`, `notifications/initialized`, `tools/list`, and `tools/call`. The shared HTTP core also supports MCP `2026-07-28` discovery for internal clients and validates its required routing headers against the request body. Both protocol paths expose the same instructions, eight tool names, schemas, and shared service implementation.
 
 Server instructions ask Codex to recheck quota at safe checkpoints during substantial work before beginning another bounded segment. A quota check must not interrupt an atomic or otherwise unsafe operation.
 
 The server exposes exactly eight tools: `quota_status`, `job_preflight`, `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare`.
+
+`quota_status` and `job_preflight` require `agentProtocol="auto-reset-v1"`. Calls without it return `AUTO_RESET_AGENT_REQUIRED`; this is the intentional v1 breaking boundary.
+
+`quota_status` accepts an optional proof-bound `resetFollowup` containing the exact `recommendationId`, `idempotencyKey`, and host outcome (`reset`, `alreadyRedeemed`, `noCredit`, `nothingToReset`, or `uncertain`). It is not a general force-refresh input. A definitive consumed result rechecks quota after 3, then 5, then 10 additional seconds through the shared lease/backoff path and stops early when the weekly epoch changes or remaining quota increases.
+
+When local `automaticWeeklyReset.enabled` is true and all eligibility conditions hold, `quota_status.resetCredit.recommendation` instructs the agent to call the host `consume_usage_reset` tool with the exact idempotency key without another confirmation. Only valid, unexpired `codexRateLimits` banked resets qualify. The thresholds are Free/Go 5%, Plus 2%, and 1% for every other recognized plan; the reported weekly reset must be strictly more than 72 hours away. Unknown plans, missing inventory, stale quota, refresh/backoff, and account ambiguity never recommend a reset. The MCP cannot buy a reset or credits and does not call the host tool itself.
 
 When a defer is schedulable, `defer_until_reset` returns a complete `automationRequest` for direct passthrough to the host `automation_update` tool. It contains the same-task one-shot schedule, ownership-bearing name, active heartbeat fields, and the fixed `Continue the work.` prompt. Callers must not inspect existing automations, browse scheduler documentation, or rewrite this request before creation. The request is `null` when `canSchedule=false`; creation and ID attachment remain separate confirmation boundaries.
 

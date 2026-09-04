@@ -141,6 +141,15 @@ export function planGroupFor(planType: string | null): PolicyProfile["planGroup"
   return "unknown";
 }
 
+export function automaticResetThresholdForPlan(planType: string | null, config: GuardConfig): number | null {
+  const normalized = planType?.toLocaleLowerCase() ?? "unknown";
+  const group = planGroupFor(planType);
+  if (group === "unknown") return null;
+  if (group === "free_go") return config.automaticWeeklyReset.thresholds.freeGo;
+  if (normalized === "plus") return config.automaticWeeklyReset.thresholds.plus;
+  return config.automaticWeeklyReset.thresholds.higher;
+}
+
 export function baselineForPlan(planType: string | null, config: GuardConfig): number {
   switch (planGroupFor(planType)) {
     case "free_go": return config.planDefaults.freeGo;

@@ -45,11 +45,11 @@ try {
     console.log(JSON.stringify({ resume: { canResume: resume.canResume, automationIdsToCancel: resume.automationIdsToCancel } }));
     assert.equal(resume.canResume, true);
   }
-  const quota = await call("quota_status", {});
+  const quota = await call("quota_status", { agentProtocol: "auto-reset-v1" });
   assert.equal(quota.stale, false); assert.equal(quota.refreshInProgress, false);
   if (values["expect-weekly"]) { assert.equal(quota.fiveHour, null); assert.equal(quota.profile.policyMode, "weekly_only"); }
   if (values["job-id"]) {
-    const job = await call("job_preflight", { workspaceRoot: root, taskId, laneId: "primary", jobClass: "medium",
+    const job = await call("job_preflight", { agentProtocol: "auto-reset-v1", workspaceRoot: root, taskId, laneId: "primary", jobClass: "medium",
       jobId: values["job-id"], description: "Bounded weekly-policy and managed deployment validation" });
     console.log(JSON.stringify({ preflight: { decision: job.decision, thresholdPercent: job.thresholdPercent, quotaPath: job.quotaPath } }));
     assert.notEqual(job.decision, "defer");

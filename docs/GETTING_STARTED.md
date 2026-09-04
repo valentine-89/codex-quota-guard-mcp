@@ -4,6 +4,8 @@
 2. Sign in to Codex with ChatGPT. API-key and Bedrock sessions are intentionally unsupported.
 3. Clone `https://github.com/valentine-89/codex-quota-guard-mcp.git`, enter the checkout, then run `npm ci`, `npm run check`, and `node scripts/install.mjs`.
 4. Restart or reconnect Codex and call `quota_status` once near the beginning of a long task.
+
+Automatic use of an existing banked reset is disabled by default. Run `node scripts/install.mjs --enable-auto-reset` to opt this profile in; this does not buy resets or credits and does not modify a global AGENTS file. Version 1 agents must pass `agentProtocol="auto-reset-v1"` to `quota_status` and `job_preflight`.
 5. Split work into bounded segments and call `job_preflight` once before each substantial segment.
 
 The installer creates managed private state; the retired v0.5 state is not migrated. It preserves unrelated Codex configuration and writes a backup beside the new Guard runtime settings.

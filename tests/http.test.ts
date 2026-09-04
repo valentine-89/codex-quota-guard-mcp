@@ -49,11 +49,11 @@ test("many HTTP clients share quota cache/admissions; disconnect does not close 
     const clients = await Promise.all(Array.from({ length: 6 }, () => f.connect()));
     for (const c of clients) assert.equal((await c.listTools()).tools.length, 8);
     // First quota read settles; subsequent concurrent requests must all use this cache.
-    await clients[0]!.callTool({ name: "quota_status", arguments: {} });
-    const snapshots = await Promise.all(clients.map(c => c.callTool({ name: "quota_status", arguments: {} })));
+    await clients[0]!.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
+    const snapshots = await Promise.all(clients.map(c => c.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } })));
     assert.equal(f.reads(), 1);
     assert.ok(snapshots.every(s => !s.isError));
-    const job = { workspaceRoot: f.dir, taskId: "task", jobId: "idempotent", jobClass: "small", description: "shared HTTP" };
+    const job = { agentProtocol: "auto-reset-v1", workspaceRoot: f.dir, taskId: "task", jobId: "idempotent", jobClass: "small", description: "shared HTTP" };
     const jobs = await Promise.all(clients.map(c => c.callTool({ name: "job_preflight", arguments: job })));
     assert.equal(jobs.filter(j => (j.structuredContent as Record<string, unknown>)?.admissionRecorded).length, 1);
     const monitor = (snapshots[0]!.structuredContent as Record<string, unknown>)?.monitor as Record<string, unknown>;
@@ -61,7 +61,7 @@ test("many HTTP clients share quota cache/admissions; disconnect does not close 
     assert.equal(monitor.lifecycleMode, "codex-bound");
     await Promise.all(clients.map(c => c.close()));
     const next = await f.connect();
-    assert.equal((await next.callTool({ name: "quota_status", arguments: {} })).isError, undefined);
+    assert.equal((await next.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } })).isError, undefined);
     assert.equal(f.reads(), 1);
   } finally { await f.close(); }
 });
@@ -214,7 +214,7 @@ test("wire-only stdio connector uses existing HTTP service and exits on EOF", { 
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.equal((await client.listTools()).tools.length, 8);
     assert.equal(f.liveClients(), 0, "tool discovery must not acquire a live-client lease");
-    await client.callTool({ name: "quota_status", arguments: {} });
+    await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
     assert.equal(f.liveClients(), 1);
     await client.close();
     for (let i = 0; i < 100 && f.liveClients(); i++) await delay(10);
@@ -240,7 +240,7 @@ test("stdio connector retains modern discovery and reports missing settings only
       args: ["--import", "tsx", resolve("src/http-connector.ts")], env, stderr: "pipe" }));
     assert.equal((await modern.listTools()).tools.length, 8);
     assert.equal(f.liveClients(), 0);
-    await modern.callTool({ name: "quota_status", arguments: {} });
+    await modern.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
     assert.equal(f.liveClients(), 1);
   } finally { await modern.close(); await f.close(); }
 

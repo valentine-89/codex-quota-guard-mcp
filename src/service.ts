@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { RESUME_AUTOMATION_PROMPT, resumeAutomationRequest, type ResumeAutomationRequest } from "./automation.js";
 import type { GuardConfig } from "./config.js";
 import { toGuardError } from "./errors.js";
@@ -6,6 +6,7 @@ import {
   buildPolicyProfile,
   creditsUsable,
   allowanceWindow,
+  automaticResetThresholdForPlan,
   isWeeklyOnly,
   weeklyResetSoon,
   normalizeRateLimits,
@@ -27,12 +28,14 @@ import type {
   QuotaSnapshot,
   QuotaLaneId,
   QuotaLaneStatus,
+  ResetCreditStatus,
+  ResetFollowup,
   StoredCheckpoint,
   StoredDefer,
 } from "./types.js";
 
 export interface QuotaReader { readQuota(): Promise<AppServerQuotaResult> }
-export interface ServiceDependencies { now?: () => number; random?: () => number; ownerId?: string }
+export interface ServiceDependencies { now?: () => number; random?: () => number; ownerId?: string; sleep?: (ms: number) => Promise<void> }
 export const INTERACTIVE_REFRESH_MIN_AGE_MS = 30_000;
 
 function iso(ms: number | null): string | null { return ms === null ? null : new Date(ms).toISOString() }
@@ -41,6 +44,7 @@ export class QuotaGuardService {
   private readonly now: () => number;
   private readonly random: () => number;
   private readonly ownerId: string;
+  private readonly sleep: (ms: number) => Promise<void>;
   private readonly key: string;
   private monitorCapability: () => boolean = () => false;
   private captureAutomation: ((defer: StoredDefer) => string | null) | undefined;
@@ -72,6 +76,7 @@ export class QuotaGuardService {
     this.now = dependencies.now ?? Date.now;
     this.random = dependencies.random ?? Math.random;
     this.ownerId = dependencies.ownerId ?? randomUUID();
+    this.sleep = dependencies.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
     this.key = profileKey(config.codexHome);
   }
 
@@ -86,12 +91,15 @@ export class QuotaGuardService {
       mayConsumeCredits: false, profile: this.unknownProfile(), fetchedAt: null,
       nextRefreshAt: new Date(nextRefreshAtMs).toISOString(), stale: true, refreshInProgress,
       backoffUntil: null, source: "unavailable", error: null, lanes: {},
+      resetCredit: { enabled: this.config.automaticWeeklyReset.enabled, availableCount: 0,
+        recommendation: null, verification: "unavailable", reason: "quota_unavailable" },
     };
   }
 
   private isV2Snapshot(snapshot: QuotaSnapshot): boolean {
     return typeof snapshot.profile === "object" && "activeBucket" in snapshot
-      && Array.isArray(snapshot.longWindows) && typeof snapshot.lanes === "object";
+      && Array.isArray(snapshot.longWindows) && typeof snapshot.lanes === "object"
+      && typeof snapshot.resetCredit === "object";
   }
 
   private identity(snapshot: QuotaSnapshot, fingerprint: string | null, bucket = snapshot.activeBucket): { key: string; fingerprint: string; planType: string; limitId: string } | null {
@@ -102,6 +110,54 @@ export class QuotaGuardService {
       planType: snapshot.planType ?? "unknown",
       limitId: bucket?.limitId ?? "active",
     };
+  }
+
+  private resetInventory(raw: AppServerQuotaResult["rateLimits"]["rateLimitResetCredits"], nowMs: number): {
+    availableCount: number; fingerprint: string | null;
+  } {
+    const credits = Array.isArray(raw?.credits) ? raw.credits.filter(credit =>
+      typeof credit.id === "string" && credit.id.length > 0
+      && credit.resetType === "codexRateLimits" && credit.status === "available"
+      && typeof credit.expiresAt === "number" && Number.isFinite(credit.expiresAt) && credit.expiresAt * 1_000 > nowMs) : [];
+    if (!credits.length) return { availableCount: 0, fingerprint: null };
+    const fingerprint = createHash("sha256").update(credits.map(credit => credit.id as string).sort().join("\n")).digest("hex");
+    return { availableCount: credits.length, fingerprint };
+  }
+
+  private resetStatusForFresh(snapshot: QuotaSnapshot, fingerprint: string | null,
+    inventory: { availableCount: number; fingerprint: string | null }): ResetCreditStatus {
+    const disabled: ResetCreditStatus = { enabled: this.config.automaticWeeklyReset.enabled,
+      availableCount: inventory.availableCount, recommendation: null, verification: "not_requested", reason: null };
+    if (!this.config.automaticWeeklyReset.enabled) return { ...disabled, reason: "disabled" };
+    if (snapshot.stale || snapshot.refreshInProgress || snapshot.error) return { ...disabled, verification: "unavailable", reason: "quota_unavailable" };
+    const bucket = snapshot.activeBucket;
+    const weekly = bucket?.weekly;
+    const threshold = automaticResetThresholdForPlan(snapshot.planType, this.config);
+    const identity = this.identity(snapshot, fingerprint, bucket);
+    if (!bucket || !weekly || !weekly.resetsAt || !identity || threshold === null) return { ...disabled, reason: "ineligible_or_unknown_plan" };
+    const resetAtMs = Date.parse(weekly.resetsAt);
+    if (!Number.isFinite(resetAtMs) || resetAtMs - this.now() <= this.config.automaticWeeklyReset.minimumTimeToResetMs) {
+      return { ...disabled, reason: "weekly_reset_within_72h" };
+    }
+    if (weekly.remainingPercent > threshold) return { ...disabled, reason: "weekly_quota_above_threshold" };
+    const epoch = this.store.listResetRecommendationsForEpoch(identity, weekly.resetsAt);
+    if (epoch.some(record => ["consumed", "verified", "nothing_to_reset"].includes(record.state))) {
+      const verified = epoch.some(record => record.state === "verified");
+      return { ...disabled, verification: verified ? "verified" : "consumed_pending_propagation",
+        reason: verified ? "reset_verified" : "reset_already_consumed_for_epoch" };
+    }
+    const reusable = epoch.find(record => record.state === "uncertain" || record.state === "recommended");
+    if (!reusable && (!inventory.fingerprint || inventory.availableCount <= 0)) return { ...disabled, reason: "no_available_reset" };
+    const recommendation = reusable ?? this.store.getOrCreateResetRecommendation(identity, weekly.resetsAt,
+      weekly.remainingPercent, threshold, inventory.fingerprint!, this.now());
+    if (recommendation.state === "no_credit") return { ...disabled, reason: "no_credit_reported" };
+    return { ...disabled, recommendation: {
+      protocol: "auto-reset-v1", action: "consume_usage_reset", recommendationId: recommendation.id,
+      idempotencyKey: recommendation.idempotencyKey, requiresUserConfirmation: false,
+      weeklyRemainingPercent: recommendation.initialRemainingPercent,
+      thresholdPercent: recommendation.thresholdPercent, weeklyResetsAt: recommendation.weeklyResetAt,
+      minimumTimeToResetMs: this.config.automaticWeeklyReset.minimumTimeToResetMs,
+    }, reason: recommendation.state === "uncertain" ? "retry_same_idempotency_key" : "weekly_threshold_and_reset_far" };
   }
 
   private profileFor(snapshot: QuotaSnapshot, fingerprint: string | null, jobClass: JobClass | null, bucket = snapshot.activeBucket): PolicyProfile {
@@ -202,6 +258,8 @@ export class QuotaGuardService {
       const activeKey = activeBucket.limitId ?? "active";
       buckets[activeKey] = activeBucket;
       const fingerprint = accountFingerprint(account?.type, account?.email);
+      const resetInventory = this.resetInventory(raw.rateLimits.rateLimitResetCredits, nowMs);
+      if (fingerprint) this.store.invalidateResetRecommendationsForOtherAccounts(this.key, fingerprint);
       const baseProfile = buildPolicyProfile(planType, null, 0, 0, null, this.config);
       const roleBuckets = Object.values(normalized.laneBuckets);
       let ttl = Math.min(...roleBuckets.map((bucket) => ttlForWindow(allowanceWindow(bucket ?? null), nowMs, this.config)));
@@ -234,6 +292,8 @@ export class QuotaGuardService {
         recommendation: "checkpoint_and_defer", quotaPath: "unavailable", mayConsumeCredits: false,
         profile: baseProfile, fetchedAt: new Date(nowMs).toISOString(), nextRefreshAt: new Date(nextRefreshAtMs).toISOString(),
         stale: false, refreshInProgress: false, backoffUntil: null, source: "codex-app-server", error: null, lanes,
+        resetCredit: { enabled: this.config.automaticWeeklyReset.enabled, availableCount: resetInventory.availableCount,
+          recommendation: null, verification: "not_requested", reason: null },
       };
       const learningWindowChanged = (["primary", "secondary"] as const).some((role) => {
         const previous = cached?.snapshot.lanes?.[role]?.bucket;
@@ -253,6 +313,7 @@ export class QuotaGuardService {
         }
       }
       snapshot = this.decorate(snapshot, fingerprint);
+      snapshot = { ...snapshot, resetCredit: this.resetStatusForFresh(snapshot, fingerprint, resetInventory) };
       this.store.saveCache(this.key, snapshot, nextRefreshAtMs, fingerprint, nowMs);
       return snapshot;
     } catch (error) {
@@ -260,6 +321,7 @@ export class QuotaGuardService {
       const guardError = toGuardError(error);
       if (guardError.code === "CHATGPT_LOGIN_REQUIRED" || guardError.code === "ACCOUNT_CHANGED_DURING_READ") {
         this.store.clearCache(this.key);
+        this.store.clearResetRecommendations(this.key);
         const next = nowMs + this.config.ttlMs.low;
         return { ...this.unknownSnapshot(next, false), error: { code: guardError.code, message: guardError.message } };
       }
@@ -275,8 +337,68 @@ export class QuotaGuardService {
     }
   }
 
+  private async reconcileReset(followup: ResetFollowup): Promise<QuotaSnapshot> {
+    const record = this.store.getResetRecommendation(followup.recommendationId, followup.idempotencyKey);
+    if (!record || record.profileKey !== this.key) {
+      throw new Error("RESET_FOLLOWUP_INVALID: recommendation ID and idempotency key do not match.");
+    }
+    const transition = followup.outcome === "uncertain" ? "uncertain"
+      : followup.outcome === "noCredit" ? "no_credit"
+      : followup.outcome === "nothingToReset" ? "nothing_to_reset" : "consumed";
+    if (["verified", "no_credit", "nothing_to_reset"].includes(record.state) && record.state !== transition) {
+      throw new Error("RESET_FOLLOWUP_REPLAY: terminal recommendation cannot change outcome.");
+    }
+    const updated = this.store.updateResetRecommendation(record.id, record.idempotencyKey, transition, this.now())!;
+    const cached = this.store.getCache(this.key);
+    const baseStatus = cached?.snapshot.resetCredit ?? { enabled: this.config.automaticWeeklyReset.enabled,
+      availableCount: 0, recommendation: null, verification: "unavailable" as const, reason: null };
+    if (transition === "uncertain") {
+      this.store.updateCachedResetCredit(this.key, { ...baseStatus, recommendation: {
+        protocol: "auto-reset-v1", action: "consume_usage_reset", recommendationId: updated.id,
+        idempotencyKey: updated.idempotencyKey, requiresUserConfirmation: false,
+        weeklyRemainingPercent: updated.initialRemainingPercent, thresholdPercent: updated.thresholdPercent,
+        weeklyResetsAt: updated.weeklyResetAt,
+        minimumTimeToResetMs: this.config.automaticWeeklyReset.minimumTimeToResetMs,
+      }, verification: "not_requested", reason: "retry_same_idempotency_key" }, this.now());
+      return this.quotaStatus();
+    }
+    if (transition === "no_credit" || transition === "nothing_to_reset") {
+      this.store.updateCachedResetCredit(this.key, { ...baseStatus, recommendation: null,
+        verification: "unavailable", reason: transition }, this.now());
+      return this.quotaStatus();
+    }
+
+    this.store.updateCachedResetCredit(this.key, { ...baseStatus, recommendation: null,
+      verification: "consumed_pending_propagation", reason: "waiting_for_backend_propagation" }, this.now());
+    let latest = await this.quotaStatus();
+    for (const delay of this.config.automaticWeeklyReset.recheckDelaysMs) {
+      await this.sleep(delay);
+      this.store.expireCache(this.key);
+      latest = await this.quotaStatus();
+      const latestCache = this.store.getCache(this.key);
+      const weekly = latest.activeBucket?.weekly;
+      const sameIdentity = latestCache?.accountFingerprint === record.accountFingerprint
+        && latest.planType === record.planType && latest.activeBucket?.limitId === record.limitId;
+      if (sameIdentity && weekly && (weekly.resetsAt !== record.weeklyResetAt
+        || weekly.remainingPercent > record.initialRemainingPercent)) {
+        this.store.updateResetRecommendation(record.id, record.idempotencyKey, "verified", this.now());
+        const verified = { ...latest.resetCredit, recommendation: null, verification: "verified" as const,
+          reason: "reset_verified" };
+        this.store.updateCachedResetCredit(this.key, verified, this.now());
+        return { ...latest, resetCredit: verified };
+      }
+      if (!sameIdentity && latestCache?.accountFingerprint) return latest;
+    }
+    const pending = { ...latest.resetCredit, recommendation: null,
+      verification: "consumed_pending_propagation" as const, reason: "backend_propagation_not_observed" };
+    this.store.updateCachedResetCredit(this.key, pending, this.now());
+    this.store.capCacheDeadline(this.key, this.now() + INTERACTIVE_REFRESH_MIN_AGE_MS);
+    return { ...latest, resetCredit: pending };
+  }
+
   /** Only detected caution/defer lanes tighten freshness; lease and backoff still apply. */
-  async quotaStatusForRequest(): Promise<QuotaSnapshot> {
+  async quotaStatusForRequest(followup?: ResetFollowup): Promise<QuotaSnapshot> {
+    if (followup) return this.reconcileReset(followup);
     const cached = this.store.getCache(this.key);
     const status = cached && this.isV2Snapshot(cached.snapshot)
       ? this.decorate(cached.snapshot, cached.accountFingerprint) : null;
@@ -458,7 +580,13 @@ export class QuotaGuardService {
     });
     stale ||= expired;
     if (stale) this.store.invalidateObservations(this.key);
-    return this.decorate({ ...snapshot, nextRefreshAt: new Date(nextRefreshAtMs).toISOString(), stale,
-      refreshInProgress: this.store.hasActiveLease(this.key, this.now()), backoffUntil: iso(backoffUntilMs), source: "cache" }, fingerprint);
+    const refreshInProgress = this.store.hasActiveLease(this.key, this.now());
+    const resetCredit = !this.config.automaticWeeklyReset.enabled
+      ? { ...snapshot.resetCredit, enabled: false, recommendation: null, reason: "disabled" }
+      : stale || refreshInProgress || backoffUntilMs !== null
+        ? { ...snapshot.resetCredit, recommendation: null, verification: "unavailable" as const, reason: "quota_unavailable" }
+        : snapshot.resetCredit;
+    return this.decorate({ ...snapshot, resetCredit, nextRefreshAt: new Date(nextRefreshAtMs).toISOString(), stale,
+      refreshInProgress, backoffUntil: iso(backoffUntilMs), source: "cache" }, fingerprint);
   }
 }

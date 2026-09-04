@@ -74,6 +74,8 @@ function snapshot(remaining: number, profile = buildPolicyProfile("plus", null, 
     fiveHour, weekly: null, longWindows: [], activeBucket, buckets: { codex: activeBucket }, planType: "plus",
     rateLimitReachedType: activeBucket.rateLimitReachedType, recommendation: "continue", quotaPath,
     mayConsumeCredits: quotaPath === "credits", profile, fetchedAt: new Date(0).toISOString(),
+    resetCredit: { enabled: false, availableCount: 0, recommendation: null,
+      verification: "not_requested", reason: "disabled" },
     nextRefreshAt: new Date(1).toISOString(), stale: false, refreshInProgress: false,
     backoffUntil: null, source: "cache", error: null, lanes: { primary: {
       laneId: "primary", detection: "active_default", available: true, bucket: activeBucket,

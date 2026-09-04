@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-05
+
+### Added
+
+- Added an opt-in automatic weekly banked-reset policy with Free/Go 5%, Plus 2%, and higher recognized-plan 1% thresholds, a strict greater-than-72-hour reset horizon, durable idempotent recommendations, and proof-bound 3/5/10-second propagation checks.
+- Added `--enable-auto-reset` to persist standing authorization in the Guard-owned local configuration without modifying global AGENTS instructions.
+
+### Changed
+
+- **Breaking:** `quota_status` and `job_preflight` now require `agentProtocol="auto-reset-v1"`; the eight-tool catalog is unchanged.
+- Extended `quota_status` with reset recommendation and follow-up fields while preserving shared single-flight, lease, backoff, credential, and no-public-force-refresh boundaries.
+
 ## [0.8.2] - 2026-09-05
 
 ### Changed

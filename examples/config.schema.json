@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/valentine-89/codex-quota-guard-mcp/blob/main/examples/config.schema.json",
-  "title": "Codex Quota Guard MCP v0.6 configuration",
+  "title": "Codex Quota Guard MCP v1 configuration",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -32,6 +32,28 @@
     "appServerTimeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000, "default": 15000 },
     "leaseDurationMs": { "type": "integer", "minimum": 5000, "maximum": 120000, "default": 30000 },
     "resetGraceMs": { "type": "integer", "minimum": 0, "maximum": 300000, "default": 30000 },
+    "automaticWeeklyReset": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "freeGo": { "type": "number", "minimum": 1, "maximum": 50, "default": 5 },
+            "plus": { "type": "number", "minimum": 1, "maximum": 50, "default": 2 },
+            "higher": { "type": "number", "minimum": 1, "maximum": 50, "default": 1 }
+          }
+        },
+        "minimumTimeToResetMs": { "type": "integer", "minimum": 60000, "maximum": 604800000, "default": 259200000 },
+        "recheckDelaysMs": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": { "type": "integer", "minimum": 1000, "maximum": 60000 },
+          "default": [3000, 5000, 10000]
+        }
+      }
+    },
     "ttlMs": {
       "type": "object",
       "additionalProperties": false,

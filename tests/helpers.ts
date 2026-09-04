@@ -9,6 +9,8 @@ export function testConfig(stateFile: string): GuardConfig {
     sampleWindow: 20, minSamples: 3, safetyFactor: 1.5, maxThreshold: 50, weeklyOnlyRemainingPercent: 3,
     cautionMarginPercent: 5, maxAutomationWaitMs: 86_400_000, manualResumeMinAgeMs: 60_000,
     appServerTimeoutMs: 1_000, leaseDurationMs: 30_000, resetGraceMs: 30_000,
+    automaticWeeklyReset: { enabled: false, thresholds: { freeGo: 5, plus: 2, higher: 1 },
+      minimumTimeToResetMs: 259_200_000, recheckDelaysMs: [3_000, 5_000, 10_000] },
     ttlMs: { high: 900_000, medium: 300_000, warning: 120_000, low: 60_000 },
   };
 }
@@ -19,6 +21,7 @@ export function rawQuota(usedPercent: number, resetSeconds = 2_000_000_000, opti
   individualLimit?: { remainingPercent: number; resetsAt: number };
   spendControlReached?: boolean; rateLimitReachedType?: string | null; limitId?: string;
   secondaryReserveUsed?: number;
+  resetCredits?: Array<{ id: string; resetType?: string; status?: string; expiresAt: number }>;
 } = {}): AppServerQuotaResult {
   const planType = options.planType ?? "plus";
   return {
@@ -36,7 +39,10 @@ export function rawQuota(usedPercent: number, resetSeconds = 2_000_000_000, opti
       base_model_inference: { limitId: "base_model_inference", limitName: "gpt-reserve",
         primary: { usedPercent: options.secondaryReserveUsed, windowDurationMins: 10_080, resetsAt: resetSeconds + 2_000 },
         secondary: null, planType, rateLimitReachedType: null },
-    } }),
+    } }), ...(options.resetCredits ? { rateLimitResetCredits: {
+      availableCount: options.resetCredits.length,
+      credits: options.resetCredits.map(credit => ({ resetType: "codexRateLimits", status: "available", ...credit })),
+    } } : {}),
     },
   };
 }

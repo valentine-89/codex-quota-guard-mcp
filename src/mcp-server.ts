@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import type { QuotaGuardService } from "./service.js";
-import { toGuardError } from "./errors.js";
+import { GuardError, toGuardError } from "./errors.js";
 import { isHostWorkspaceRoot } from "./host-path.js";
 import type { CheckpointPayload } from "./types.js";
 
@@ -16,7 +16,18 @@ export const SERVER_INSTRUCTIONS = [
   "On defer, immediately call defer_until_reset with bounded state. Never schedule when canSchedule is false.",
   "Before manual or automated resume, call resume_prepare first; stop when shouldExit is true or canResume is false.",
   "Do not poll, force quota refresh, or store credentials, complete prompts, or complete model responses in checkpoints.",
+  "Pass agentProtocol=auto-reset-v1 to quota_status and job_preflight. When quota_status returns a resetCredit recommendation, its enabled local policy is standing user authorization: call the host consume_usage_reset tool immediately with the exact idempotencyKey and without asking again; never buy a reset or credits. Retry an uncertain host response only with the same key, then report the exact outcome through quota_status.resetFollowup. Never invent a recommendation or key.",
 ].join(" ");
+
+const agentProtocol = z.string().optional().describe("Required breaking contract marker: auto-reset-v1.");
+function requireAgentProtocol(value: string | undefined): asserts value is "auto-reset-v1" {
+  if (value !== "auto-reset-v1") throw new GuardError("AUTO_RESET_AGENT_REQUIRED",
+    "This Quota Guard release requires agentProtocol=auto-reset-v1 and an agent that supports the banked-reset workflow.");
+}
+const resetFollowup = z.object({
+  recommendationId: z.string().uuid(), idempotencyKey: z.string().uuid(),
+  outcome: z.enum(["reset", "alreadyRedeemed", "noCredit", "nothingToReset", "uncertain"]),
+}).strict();
 
 const workspaceRoot = z.string().min(1).max(4_096)
   .refine(value => isHostWorkspaceRoot(value), "workspaceRoot must use an absolute path in the Guard host format")
@@ -61,18 +72,21 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "0.8.2" },
+    { name: "codex-quota-guard-mcp", version: "1.0.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
   server.registerTool("quota_status", {
-    description: "Read current shared Codex quota near the start of long work. If a detected lane is in caution/defer state and the previous successful read is over 30 seconds old, this request may refresh through the shared lease/backoff. Healthy quota retains adaptive TTL; there is no force input and callers must not call before every command or small file read.",
-    inputSchema: z.object({}),
-  }, async () => { try { return result({ ...await service.quotaStatusForRequest(), monitor: service.monitorStatus() }); } catch (error) { return failure(error); } });
+    description: "Requires agentProtocol=auto-reset-v1. Read current shared Codex quota near the start of long work. If resetCredit.recommendation is present, call host consume_usage_reset with its exact idempotencyKey without asking again, then report the outcome in resetFollowup. The proof-bound follow-up may recheck after 3/5/10 seconds; there is no generic force refresh.",
+    inputSchema: z.object({ agentProtocol, resetFollowup: resetFollowup.optional() }).strict(),
+  }, async (input) => { try { requireAgentProtocol(input.agentProtocol); return result({
+    ...await service.quotaStatusForRequest(input.resetFollowup), monitor: service.monitorStatus(),
+  }); } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
-    description: "Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Use primary for main work; secondary only when quota_status reports it.",
+    description: "Requires agentProtocol=auto-reset-v1. Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Use primary for main work; secondary only when quota_status reports it.",
     inputSchema: z.object({
+      agentProtocol,
       jobId: z.string().min(1).max(256).describe("Stable idempotency identifier for this part-job."),
       taskId, workspaceRoot, jobClass: z.enum(["small", "medium", "long"]),
       estimatedMinutes: z.number().min(0).max(10_080).optional(), description: z.string().min(1).max(2_000), laneId,
@@ -80,7 +94,9 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
     }),
   }, async (input) => {
     try {
+      requireAgentProtocol(input.agentProtocol);
       return result(await service.jobPreflight({
+        agentProtocol: input.agentProtocol,
         jobId: input.jobId, taskId: input.taskId, workspaceRoot: input.workspaceRoot,
         jobClass: input.jobClass, description: input.description,
         ...(input.laneId ? { laneId: input.laneId } : {}), ...(input.sessionRole ? { sessionRole: input.sessionRole } : {}),

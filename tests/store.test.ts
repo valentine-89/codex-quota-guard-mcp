@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
-import { StateStore } from "../src/store.js";
+import { DatabaseSync } from "node:sqlite";
+import { stableHash, StateStore } from "../src/store.js";
 
 test("refresh lease is shared and expired owners are recoverable", () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-store-"));
@@ -20,6 +21,42 @@ test("refresh lease is shared and expired owners are recoverable", () => {
     second.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("schema v3 upgrades to v4 without losing checkpoints", () => {
+  const directory = mkdtempSync(join(tmpdir(), "quota-guard-schema-"));
+  const path = join(directory, "state.sqlite");
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`CREATE TABLE checkpoints (
+    id TEXT PRIMARY KEY, profile_key TEXT NOT NULL, workspace_hash TEXT NOT NULL,
+    workspace_root TEXT NOT NULL, task_id TEXT, payload_json TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL, resume_at_ms INTEGER
+  ); PRAGMA user_version=3;`);
+  const payload = { workspaceRoot: directory, taskId: "task", objective: "preserve", completed: [], pending: [] };
+  legacy.prepare("INSERT INTO checkpoints VALUES (?,?,?,?,?,?,?,?)").run(
+    "checkpoint", "profile", stableHash(resolve(directory).toLocaleLowerCase()), directory, "task", JSON.stringify(payload), 1_000, null);
+  legacy.close();
+  const store = new StateStore(path);
+  try {
+    assert.equal(store.getCheckpoint("profile", directory, "task")?.objective, "preserve");
+    const check = new DatabaseSync(path);
+    assert.equal((check.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 4);
+    check.close();
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("automatic reset recommendation is stable across store instances for one epoch", () => {
+  const directory = mkdtempSync(join(tmpdir(), "quota-guard-reset-store-"));
+  const path = join(directory, "state.sqlite");
+  const first = new StateStore(path);
+  const second = new StateStore(path);
+  const identity = { key: "profile", fingerprint: "account", planType: "plus", limitId: "codex" };
+  try {
+    const one = first.getOrCreateResetRecommendation(identity, "reset-a", 2, 2, "inventory", 1_000);
+    const two = second.getOrCreateResetRecommendation(identity, "reset-a", 2, 2, "inventory", 1_001);
+    assert.equal(two.id, one.id);
+    assert.equal(two.idempotencyKey, one.idempotencyKey);
+  } finally { first.close(); second.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("checkpoint round-trips atomically and redacts likely secrets", () => {

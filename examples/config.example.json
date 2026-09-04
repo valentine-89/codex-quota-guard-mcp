@@ -13,5 +13,11 @@
   "appServerTimeoutMs": 15000,
   "leaseDurationMs": 30000,
   "resetGraceMs": 30000,
+  "automaticWeeklyReset": {
+    "enabled": false,
+    "thresholds": { "freeGo": 5, "plus": 2, "higher": 1 },
+    "minimumTimeToResetMs": 259200000,
+    "recheckDelaysMs": [3000, 5000, 10000]
+  },
   "ttlMs": { "high": 900000, "medium": 300000, "warning": 120000, "low": 60000 }
 }

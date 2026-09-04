@@ -83,10 +83,11 @@ try {
     "job_preflight", "quota_profile", "quota_status", "resume_prepare"]);
   const preflight = tools.tools.find((tool) => tool.name === "job_preflight");
   assert.deepEqual([...preflight.inputSchema.required].sort(), ["description", "jobClass", "jobId", "taskId", "workspaceRoot"]);
-  const quota = await client.callTool({ name: "quota_status", arguments: {} });
+  assert.ok(preflight.inputSchema.properties.agentProtocol, "job_preflight protocol marker missing");
+  const quota = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
   assert.ok(!quota.isError, "quota_status returned an MCP tool error");
   const structuredQuota = quota.structuredContent;
-  assert.ok(structuredQuota?.profile && structuredQuota?.lanes, "v0.2 snapshot fields missing");
+  assert.ok(structuredQuota?.profile && structuredQuota?.lanes && structuredQuota?.resetCredit, "v1 snapshot fields missing");
   assert.equal(structuredQuota.stale, false, `Live quota unavailable: ${JSON.stringify(structuredQuota.error)}`);
   assert.equal(structuredQuota.refreshInProgress, false, "A shared refresh is in progress; use the normal next refresh deadline");
   const profile = await client.callTool({ name: "quota_profile", arguments: { action: "get" } });

@@ -10,6 +10,7 @@ import type {
   QuotaLaneId,
   StoredCheckpoint,
   StoredDefer,
+  StoredResetRecommendation,
 } from "./types.js";
 import { redactSensitiveText, sanitizeStringList } from "./security.js";
 import { MonitorState } from "./monitor-state.js";
@@ -43,9 +44,9 @@ export class StateStore {
     this.database = new DatabaseSync(path);
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
     const version = numeric(rowRecord(this.database.prepare("PRAGMA user_version").get())?.user_version);
-    if (version > 3) {
+    if (version > 4) {
       this.database.close();
-      throw new Error(`State schema ${version} is newer than supported schema 3; upgrade quota guard.`);
+      throw new Error(`State schema ${version} is newer than supported schema 4; upgrade quota guard.`);
     }
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -102,7 +103,17 @@ export class StateStore {
       );
       CREATE INDEX IF NOT EXISTS idx_defer_lookup
         ON defer_records(profile_key, workspace_hash, task_id, state, created_at_ms DESC);
-      PRAGMA user_version=3;
+      CREATE TABLE IF NOT EXISTS automatic_reset_recommendations (
+        id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, profile_key TEXT NOT NULL,
+        account_fingerprint TEXT NOT NULL, plan_type TEXT NOT NULL, limit_id TEXT NOT NULL,
+        weekly_reset_at TEXT NOT NULL, initial_remaining_percent REAL NOT NULL,
+        threshold_percent REAL NOT NULL, inventory_fingerprint TEXT NOT NULL,
+        state TEXT NOT NULL, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
+        UNIQUE(profile_key, account_fingerprint, plan_type, limit_id, weekly_reset_at, inventory_fingerprint)
+      );
+      CREATE INDEX IF NOT EXISTS idx_automatic_reset_epoch
+        ON automatic_reset_recommendations(profile_key, account_fingerprint, plan_type, limit_id, weekly_reset_at, created_at_ms DESC);
+      PRAGMA user_version=4;
     `);
     const deferColumns = this.database.prepare("PRAGMA table_info(defer_records)").all()
       .map((row) => nullableText(rowRecord(row)?.name));
@@ -118,6 +129,68 @@ export class StateStore {
   }
 
   close(): void { this.database.close() }
+
+  private resetRecommendation(row: unknown): StoredResetRecommendation | null {
+    const value = rowRecord(row);
+    if (!value) return null;
+    const state = text(value.state) as StoredResetRecommendation["state"];
+    return {
+      id: text(value.id), idempotencyKey: text(value.idempotency_key), profileKey: text(value.profile_key),
+      accountFingerprint: text(value.account_fingerprint), planType: text(value.plan_type), limitId: text(value.limit_id),
+      weeklyResetAt: text(value.weekly_reset_at), initialRemainingPercent: numeric(value.initial_remaining_percent),
+      thresholdPercent: numeric(value.threshold_percent), inventoryFingerprint: text(value.inventory_fingerprint), state,
+      createdAtMs: numeric(value.created_at_ms), updatedAtMs: numeric(value.updated_at_ms),
+    };
+  }
+
+  getResetRecommendation(id: string, idempotencyKey: string): StoredResetRecommendation | null {
+    return this.resetRecommendation(this.database.prepare(
+      "SELECT * FROM automatic_reset_recommendations WHERE id=? AND idempotency_key=?",
+    ).get(id, idempotencyKey));
+  }
+
+  listResetRecommendationsForEpoch(identity: { key: string; fingerprint: string; planType: string; limitId: string },
+    weeklyResetAt: string): StoredResetRecommendation[] {
+    return this.database.prepare(`SELECT * FROM automatic_reset_recommendations
+      WHERE profile_key=? AND account_fingerprint=? AND plan_type=? AND limit_id=? AND weekly_reset_at=?
+      ORDER BY created_at_ms DESC`).all(identity.key, identity.fingerprint, identity.planType, identity.limitId, weeklyResetAt)
+      .map(row => this.resetRecommendation(row)).filter((row): row is StoredResetRecommendation => row !== null);
+  }
+
+  getOrCreateResetRecommendation(identity: { key: string; fingerprint: string; planType: string; limitId: string },
+    weeklyResetAt: string, remainingPercent: number, thresholdPercent: number, inventoryFingerprint: string,
+    nowMs: number): StoredResetRecommendation {
+    const existing = this.resetRecommendation(this.database.prepare(`SELECT * FROM automatic_reset_recommendations
+      WHERE profile_key=? AND account_fingerprint=? AND plan_type=? AND limit_id=? AND weekly_reset_at=?
+        AND inventory_fingerprint=?`).get(identity.key, identity.fingerprint, identity.planType, identity.limitId,
+      weeklyResetAt, inventoryFingerprint));
+    if (existing) return existing;
+    const id = randomUUID();
+    const idempotencyKey = randomUUID();
+    this.database.prepare(`INSERT INTO automatic_reset_recommendations
+      (id,idempotency_key,profile_key,account_fingerprint,plan_type,limit_id,weekly_reset_at,
+       initial_remaining_percent,threshold_percent,inventory_fingerprint,state,created_at_ms,updated_at_ms)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?, ?,?)`).run(id, idempotencyKey, identity.key, identity.fingerprint,
+      identity.planType, identity.limitId, weeklyResetAt, remainingPercent, thresholdPercent,
+      inventoryFingerprint, "recommended", nowMs, nowMs);
+    return this.getResetRecommendation(id, idempotencyKey)!;
+  }
+
+  updateResetRecommendation(id: string, idempotencyKey: string, state: StoredResetRecommendation["state"],
+    nowMs: number): StoredResetRecommendation | null {
+    this.database.prepare(`UPDATE automatic_reset_recommendations SET state=?,updated_at_ms=?
+      WHERE id=? AND idempotency_key=?`).run(state, nowMs, id, idempotencyKey);
+    return this.getResetRecommendation(id, idempotencyKey);
+  }
+
+  invalidateResetRecommendationsForOtherAccounts(key: string, fingerprint: string): void {
+    this.database.prepare("DELETE FROM automatic_reset_recommendations WHERE profile_key=? AND account_fingerprint<>?")
+      .run(key, fingerprint);
+  }
+
+  clearResetRecommendations(key: string): void {
+    this.database.prepare("DELETE FROM automatic_reset_recommendations WHERE profile_key=?").run(key);
+  }
 
   getCache(key: string): CachedQuotaRecord | null {
     const row = rowRecord(this.database.prepare(
@@ -141,6 +214,13 @@ export class StateStore {
         account_fingerprint=excluded.account_fingerprint, updated_at_ms=excluded.updated_at_ms
     `).run(key, JSON.stringify(snapshot), nowMs, nextRefreshAtMs, fingerprint, nowMs);
     this.database.prepare("DELETE FROM backoff_state WHERE profile_key = ?").run(key);
+  }
+
+  updateCachedResetCredit(key: string, resetCredit: QuotaSnapshot["resetCredit"], nowMs: number): void {
+    const cached = this.getCache(key);
+    if (!cached) return;
+    this.database.prepare("UPDATE quota_cache SET snapshot_json=?,updated_at_ms=? WHERE profile_key=?")
+      .run(JSON.stringify({ ...cached.snapshot, resetCredit }), nowMs, key);
   }
 
   expireCache(key: string): void {
