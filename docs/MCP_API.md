@@ -1,4 +1,4 @@
-# MCP API 0.7.4
+# MCP API 0.7.5
 
 The public STDIO connector supports stable MCP through `initialize`, `notifications/initialized`, `tools/list`, and `tools/call`. The shared HTTP core also supports MCP `2026-07-28` discovery for internal clients and validates its required routing headers against the request body. Both protocol paths expose the same instructions, eight tool names, schemas, and shared service implementation.
 

@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-09-05
+
 ### Fixed
 
 - Restored the stable MCP `initialize`/`initialized` STDIO lifecycle for default Codex clients while retaining the shared authenticated core and its internal `2026-07-28` path.

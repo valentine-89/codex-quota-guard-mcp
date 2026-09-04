@@ -1,6 +1,6 @@
 {
   "name": "codex-quota-guard-mcp",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Plan-aware adaptive Codex quota guard, passive learning, and checkpoint MCP server",
   "type": "module",
   "license": "MIT",
