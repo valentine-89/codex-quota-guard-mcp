@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 export interface ManagedSettings {
   revision: 2;
+  releaseVersion?: string;
   installationId: string;
   port: number;
   token: string;
@@ -22,6 +23,8 @@ export function readManagedSettings(path: string): ManagedSettings {
     || info.uid !== process.getuid?.() || directory.uid !== process.getuid?.())) throw new Error("MANAGED_SETTINGS_NOT_PRIVATE");
   const value = JSON.parse(readFileSync(path, "utf8")) as ManagedSettings;
   if (value.revision !== 2 || !/^[a-f0-9-]{36}$/.test(value.installationId)
+    || (value.releaseVersion !== undefined && (typeof value.releaseVersion !== "string"
+      || value.releaseVersion.length < 1 || value.releaseVersion.length > 64 || /[\r\n\0]/.test(value.releaseVersion)))
     || !Number.isInteger(value.port) || value.port < 1024 || value.port > 65535
     || !/^[a-zA-Z0-9_-]{43,256}$/.test(value.token)
     || ![value.nodeExecutable, value.coreEntrypoint, value.guardConfig].every(p => typeof p === "string" && isAbsolute(p))) {

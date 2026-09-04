@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-05
+
+### Fixed
+
+- Installer upgrades now rotate the private managed-core endpoint when the release, Node executable, or installed entrypoint changes, preventing a new connector from silently reusing an older core while preserving Guard configuration and SQLite state.
+
 ## [0.8.0] - 2026-09-05
 
 ### Added

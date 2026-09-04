@@ -31,14 +31,23 @@ const runJson = (script, args = []) => {
 };
 try {
   const first = runJson("scripts/install.mjs");
+  const firstSettings = readManagedSettings(first.settingsPath);
+  writeFileSync(first.settingsPath, JSON.stringify({ ...firstSettings, releaseVersion: "0.7.5",
+    coreEntrypoint: join(directory, "retired", "core.js") }));
   const second = runJson("scripts/install.mjs");
   assert.equal(first.settingsPath, second.settingsPath);
+  const upgradedSettings = readManagedSettings(second.settingsPath);
+  assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
+  assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
+  assert.equal(upgradedSettings.releaseVersion, "0.8.1");
+  const third = runJson("scripts/install.mjs");
+  assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
   const text = readFileSync(configPath, "utf8"), config = parse(text);
   assert.ok(text.includes("# preserved"));
   assert.equal(config.mcp_servers.unrelated.command, "never-run");
   assert.ok(config.mcp_servers.codex_quota_guard.args.at(-1).endsWith(`${join("dist", "connector.js")}`));
   assert.equal(config.mcp_servers.codex_quota_guard.default_tools_approval_mode, "approve");
-  settings = readManagedSettings(first.settingsPath);
+  settings = upgradedSettings;
   assert.ok(!text.includes(settings.token));
   const registration = config.mcp_servers.codex_quota_guard;
   assert.ok(registration.env_vars.includes("CODEX_APP_TOOLS_PIPE_PATH"));
@@ -77,7 +86,8 @@ try {
   assert.equal(after.mcp_servers.unrelated.command, "never-run");
   assert.equal(after.mcp_servers.codex_quota_guard, undefined);
   assert.equal(existsSync(first.settingsPath), false);
-  console.log(JSON.stringify({ installedTwice: true, unrelatedConfigPreserved: true, connectors: 6,
+  console.log(JSON.stringify({ upgradeRotatedEndpoint: true, sameVersionReinstallStable: true,
+    unrelatedConfigPreserved: true, connectors: 6,
     singletonPid: pid, coreStoppedAfterDisconnect: true, uninstallPurgedOwnedState: true,
     platform: process.platform, arch: process.arch }));
 } finally {
