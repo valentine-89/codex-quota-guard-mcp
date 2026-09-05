@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
@@ -90,10 +91,7 @@ export interface GuardConfig {
 function defaultStateDir(): string {
   const override = process.env.CODEX_QUOTA_GUARD_STATE_DIR;
   if (override) return resolve(override);
-  if (platform() === "win32") {
-    return join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "codex-quota-guard");
-  }
-  return join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "codex-quota-guard");
+  return fileURLToPath(new URL("../data", import.meta.url));
 }
 
 export function loadConfig(): GuardConfig {

@@ -1,4 +1,4 @@
-# MCP API 2.0.3
+# MCP API 2.1.0
 
 `quota_status` and `job_preflight` default to `detail="summary"`, normally around 1 KB of JSON. `detail="full"` returns the original data; `detail="compact"` keeps deduplicated quota data (including nested preflight quota). Selecting detail never forces a refresh. Responses omit the redundant `format` marker; no compatibility marker or fallback is provided.
 

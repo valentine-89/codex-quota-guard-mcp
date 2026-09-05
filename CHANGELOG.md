@@ -4,6 +4,22 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-05
+
+### Changed
+
+- Managed configuration and SQLite state now live in the installed tool's `data/core-<profile hash>/`. Standalone default state also stays under the tool's `data/`; explicit standalone state overrides remain available.
+- External-state installations require an explicit purge with the old uninstaller and a clean reinstall. No storage migration or fallback is provided.
+- Installer no longer creates full Codex configuration backups. Git and npm packaging exclude runtime data.
+
+### Security
+
+- Installation and purge validate exact installation/profile paths and reject redirected data directories before changing configuration or permissions.
+
+### Tests
+
+- Disposable installed-checkout acceptance covers local storage, upgrade persistence, profile isolation, redirected paths, legacy rejection, and repeatable clean removal.
+
 ## [2.0.3] - 2026-09-05
 
 ### Fixed

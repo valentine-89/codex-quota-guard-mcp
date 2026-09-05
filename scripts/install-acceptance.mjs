@@ -1,9 +1,9 @@
 // Disposable cross-platform install and concurrent-connector lifecycle acceptance.
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync, cpSync, symlinkSync, rmSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { parse, stringify } from "smol-toml";
 import { Client } from "@modelcontextprotocol/client";
@@ -11,6 +11,9 @@ import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotoc
 import { managedHealth, readManagedSettings } from "../dist/managed.js";
 
 const directory = mkdtempSync(join(tmpdir(), "quota-install-"));
+const fixtureRoot = join(directory, "tool"); mkdirSync(fixtureRoot);
+for (const path of ["scripts", "dist", "package.json"]) cpSync(resolve(path), join(fixtureRoot, path), { recursive: true });
+symlinkSync(resolve("node_modules"), join(fixtureRoot, "node_modules"), process.platform === "win32" ? "junction" : "dir");
 const home = join(directory, "home"); mkdirSync(home, { mode: 0o700 });
 const configPath = join(home, "config.toml");
 writeFileSync(configPath, `# preserved\nmodel = "fixture-only"\n[mcp_servers.unrelated]\ncommand = "never-run"\n`);
@@ -21,7 +24,7 @@ let settings;
 const clients = [];
 const runJson = (script, args = []) => {
   try {
-    return JSON.parse(execFileSync(process.execPath, [resolve(script), ...args],
+    return JSON.parse(execFileSync(process.execPath, [join(fixtureRoot, script), ...args],
       { env, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
   } catch (error) {
     if (error?.stdout) process.stderr.write(`installer stdout:\n${error.stdout}`);
@@ -31,6 +34,10 @@ const runJson = (script, args = []) => {
 };
 try {
   const first = runJson("scripts/install.mjs");
+  assert.equal(dirname(dirname(first.settingsPath)), join(fixtureRoot, "data"));
+  assert.equal(existsSync(join(home, "quota-guard")), false);
+  assert.equal(first.backupPath, undefined);
+  assert.ok(!readdirSync(dirname(first.settingsPath)).some(name => name.startsWith("codex-config-before-")));
   const firstSettings = readManagedSettings(first.settingsPath);
   writeFileSync(first.settingsPath, JSON.stringify({ ...firstSettings, releaseVersion: "0.7.5",
     coreEntrypoint: join(directory, "retired", "core.js") }));
@@ -39,7 +46,7 @@ try {
   const upgradedSettings = readManagedSettings(second.settingsPath);
   assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
   assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
-  assert.equal(upgradedSettings.releaseVersion, "2.0.3");
+  assert.equal(upgradedSettings.releaseVersion, "2.1.0");
   const third = runJson("scripts/install.mjs");
   assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
   const optedIn = runJson("scripts/install.mjs", ["--enable-auto-reset"]);
@@ -109,21 +116,54 @@ try {
     env: { CODEX_QUOTA_GUARD_MANAGED_SETTINGS: join(outside, "runtime.json") },
   } } });
   writeFileSync(configPath, unsafe);
-  assert.throws(() => execFileSync(process.execPath, [resolve("scripts/uninstall.mjs"), "--purge"],
+  assert.throws(() => execFileSync(process.execPath, [join(fixtureRoot, "scripts/uninstall.mjs"), "--purge"],
     { env, windowsHide: true, stdio: "pipe" }));
   assert.equal(readFileSync(configPath, "utf8"), unsafe);
   assert.equal(readFileSync(sentinel, "utf8"), "keep");
+  // A legacy registration is rejected before config, legacy data, or new state changes.
+  assert.throws(() => execFileSync(process.execPath, [join(fixtureRoot, "scripts/install.mjs")],
+    { env, windowsHide: true, stdio: "pipe" }));
+  assert.equal(readFileSync(configPath, "utf8"), unsafe);
+  assert.equal(existsSync(first.settingsPath), false);
+  assert.equal(readFileSync(sentinel, "utf8"), "keep");
+  // Another profile's valid-looking directory must never be purged.
+  const sibling = join(fixtureRoot, "data", `core-${"a".repeat(64)}`); mkdirSync(sibling);
+  const siblingSentinel = join(sibling, "keep.txt"); writeFileSync(siblingSentinel, "keep");
+  writeFileSync(configPath, stringify({ mcp_servers: { codex_quota_guard: {
+    env: { CODEX_QUOTA_GUARD_MANAGED_SETTINGS: join(sibling, "runtime.json") },
+  } } }));
+  assert.throws(() => execFileSync(process.execPath, [join(fixtureRoot, "scripts/uninstall.mjs"), "--purge"],
+    { env, windowsHide: true, stdio: "pipe" }));
+  assert.equal(readFileSync(siblingSentinel, "utf8"), "keep");
+  // Reject a redirected data root on both install and purge, without elevation.
+  writeFileSync(configPath, "");
+  const dataPath = join(fixtureRoot, "data");
+  rmSync(dataPath, { recursive: true });
+  symlinkSync(outside, dataPath, process.platform === "win32" ? "junction" : "dir");
+  try {
+    for (const script of ["install.mjs", "uninstall.mjs"]) {
+      assert.throws(() => execFileSync(process.execPath, [join(fixtureRoot, "scripts", script),
+        ...(script === "uninstall.mjs" ? ["--purge"] : [])], { env, windowsHide: true, stdio: "pipe" }));
+    }
+    assert.equal(readFileSync(sentinel, "utf8"), "keep");
+    assert.equal(readFileSync(configPath, "utf8"), "");
+  } finally { rmSync(dataPath, { recursive: true }); }
+  // Fresh installs also work with no Codex config file.
+  unlinkSync(configPath);
+  runJson("scripts/install.mjs");
+  assert.equal(runJson("scripts/uninstall.mjs", ["--purge"]).purged, true);
   // Reject an unsupported TOML layout rather than silently retaining the registration.
   const inline = 'mcp_servers = { codex_quota_guard = { command = "fixture" }, unrelated = { command = "keep" } }\n';
   writeFileSync(configPath, inline);
-  assert.throws(() => execFileSync(process.execPath, [resolve("scripts/uninstall.mjs")],
+  assert.throws(() => execFileSync(process.execPath, [join(fixtureRoot, "scripts/uninstall.mjs")],
     { env, windowsHide: true, stdio: "pipe" }));
   assert.equal(readFileSync(configPath, "utf8"), inline);
   console.log(JSON.stringify({ upgradeRotatedEndpoint: true, sameVersionReinstallStable: true,
     unrelatedConfigPreserved: true, connectors: 6,
     singletonPid: pid, coreStoppedAfterDisconnect: true, uninstallPurgedOwnedState: true,
     purgeAfterUnregister: true, repeatedPurgeSafe: true, missingConfigCleanup: true, uninstallNoBackup: true,
-    platform: process.platform, arch: process.arch }));
+    installationLocalData: true, legacyRejected: true, otherProfileProtected: true, redirectedDataRejected: true,
+    installNoBackup: true, platform: process.platform, arch: process.arch }));
 } finally {
   await Promise.all(clients.map(client => client.close().catch(() => undefined)));
   if (settings) {

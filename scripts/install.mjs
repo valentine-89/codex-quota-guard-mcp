@@ -1,12 +1,13 @@
 // Cross-platform, non-elevated installer for the on-demand authenticated connector.
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, chmodSync, rmSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { parse, stringify } from "smol-toml";
 import { readManagedSettings } from "../dist/managed.js";
+import { installationSettingsPath } from "./install-paths.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const argumentsSet = new Set(process.argv.slice(2));
@@ -18,8 +19,10 @@ mkdirSync(home, { recursive: true, mode: 0o700 });
 const original = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
 const config = parse(original);
 const registration = config.mcp_servers?.codex_quota_guard ?? {};
+installationSettingsPath(home, registration.env?.CODEX_QUOTA_GUARD_MANAGED_SETTINGS);
 const env = { ...process.env, ...registration.env, CODEX_HOME: home,
-  CODEX_QUOTA_GUARD_MANAGED_SETTINGS: "", CODEX_QUOTA_GUARD_MIGRATE_FROM_SETTINGS: "" };
+  CODEX_QUOTA_GUARD_CONFIG: "", CODEX_QUOTA_GUARD_STATE_DIR: "",
+  CODEX_QUOTA_GUARD_MANAGED_SETTINGS: "" };
 const provision = JSON.parse(execFileSync(process.execPath, [join(root, "scripts", "provision-managed.mjs")],
   { env, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
 const settings = readManagedSettings(provision.settingsPath);
@@ -71,13 +74,14 @@ if (expected.mcp_servers) delete expected.mcp_servers.codex_quota_guard;
 else expected.mcp_servers = {};
 if (JSON.stringify(checked) !== JSON.stringify(expected)) throw Error("Unusual TOML layout; registration unchanged, merge manually");
 if ((existsSync(configPath) ? readFileSync(configPath, "utf8") : "") !== original) throw Error("Codex config changed during setup; registration unchanged");
-const backupPath = join(dirname(provision.settingsPath), `codex-config-before-${randomUUID()}.toml`);
-writeFileSync(backupPath, original, { flag: "wx", mode: 0o600 });
 const temporary = `${configPath}.quota-guard-${randomUUID()}.tmp`;
-writeFileSync(temporary, updated, { flag: "wx", mode: 0o600 });
-if (process.platform !== "win32") { chmodSync(backupPath, 0o600); chmodSync(temporary, 0o600); }
-renameSync(temporary, configPath);
-if (process.platform !== "win32") chmodSync(configPath, 0o600);
+try {
+  writeFileSync(temporary, updated, { flag: "wx", mode: 0o600 });
+  if (process.platform !== "win32") chmodSync(temporary, 0o600);
+  if ((existsSync(configPath) ? readFileSync(configPath, "utf8") : "") !== original) throw Error("Codex config changed during setup; registration unchanged");
+  renameSync(temporary, configPath);
+  if (process.platform !== "win32") chmodSync(configPath, 0o600);
+} finally { if (existsSync(temporary)) rmSync(temporary, { force: true }); }
 console.log(JSON.stringify({ installed: true, platform: process.platform, arch: process.arch,
-  settingsPath: provision.settingsPath, backupPath, onDemand: true, scheduledTask: false,
+  settingsPath: provision.settingsPath, onDemand: true, scheduledTask: false,
   serviceInstalled: false, migrationPerformed: false, automaticWeeklyResetEnabled: enableAutoReset }));

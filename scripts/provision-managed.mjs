@@ -6,15 +6,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/config.js";
-import { profileKey } from "../dist/store.js";
-import { managedFile, readManagedSettings } from "../dist/managed.js";
+import { readManagedSettings } from "../dist/managed.js";
+import { dataRoot, installationSettingsPath } from "./install-paths.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const config = loadConfig();
-// Managed state must be visible both inside Codex and to the external user task.
-// LocalAppData can be package-virtualized by the desktop app, while CODEX_HOME is shared.
-const managedStateDir = resolve(process.env.CODEX_QUOTA_GUARD_MANAGED_STATE_DIR ?? join(config.codexHome, "quota-guard"));
-const path = managedFile(managedStateDir, profileKey(config.codexHome));
+const managedStateDir = dataRoot;
+const path = installationSettingsPath(config.codexHome);
 const directory = dirname(path);
 const releaseVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 const coreEntrypoint = join(root, "dist", "core.js");

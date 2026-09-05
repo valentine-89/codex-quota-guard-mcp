@@ -1,4 +1,4 @@
-# Codex Quota Guard MCP 2.0.3
+# Codex Quota Guard MCP 2.1.0
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
@@ -42,6 +42,10 @@ node scripts/install.mjs --enable-auto-reset
 This never buys resets or usage credits. It only lets a compatible Codex agent act on a Guard recommendation when a valid banked reset is already reported. The default remains disabled.
 
 The installer preserves unrelated `config.toml` content, creates a private local bearer and runtime settings, and registers the absolute Node executable with `dist/connector.js`. It does not start a persistent process. Restart or reconnect Codex after installation so it opens the new connector.
+
+Guard configuration and state live inside the installed tool at `data/core-<profile hash>/`: `guard.json` holds policy (including automatic reset), `runtime.json` holds private connection settings, and `state.sqlite` holds quota cache, learning, checkpoints, defers and reset recommendations. Each Codex profile has its own directory. Only the MCP registration stays in Codex's `config.toml`. Keep the installation in a writable directory and retain `data/` during future code updates; Git and npm packaging exclude it. Install/uninstall create no configuration backups.
+
+For installations using the old external state directory, close Guard clients and run the **old installation's** `node scripts/uninstall.mjs --purge` before updating its code. Then install this release from the intended installation directory. This is a clean reinstall: old learning, checkpoints, defers, and reset records are deleted. There is no storage migration or fallback. Reapply `--enable-auto-reset` if desired. Review any previously scheduled Guard resume automations separately; deleting local state does not cancel them.
 
 On a Windows machine that also uses WSL, run the installer with Windows Node from `pwsh`; both Windows and WSL tasks then use the Windows-hosted core and the same Windows profile. Native Linux and native macOS each use their own local Node, Codex login and state. The early-recovery monitor accepts a verified Windows named pipe or POSIX Unix-domain socket when Codex supplies the scheduler capability. Do not share credential or state directories across hosts.
 

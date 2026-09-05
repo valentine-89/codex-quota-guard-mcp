@@ -1,11 +1,11 @@
 // Removes the registration; --purge also removes the current profile's managed state.
-import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, chmodSync, lstatSync, realpathSync } from "node:fs";
-import { join, resolve, dirname, relative, isAbsolute } from "node:path";
+import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, chmodSync } from "node:fs";
+import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { parse } from "smol-toml";
-import { managedFile, managedHealth, readManagedSettings } from "../dist/managed.js";
-import { profileKey } from "../dist/store.js";
+import { managedHealth, readManagedSettings } from "../dist/managed.js";
+import { installationSettingsPath } from "./install-paths.mjs";
 
 const args = process.argv.slice(2);
 if (args.some(arg => arg !== "--purge")) throw Error("Unknown uninstaller option");
@@ -15,23 +15,8 @@ const configPath = join(home, "config.toml");
 const original = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
 const config = parse(original);
 const registration = config.mcp_servers?.codex_quota_guard;
-const stateRoot = join(home, "quota-guard");
-// Recover only this profile's deterministic managed path, never scan for old installations.
-const settingsPath = registration?.env?.CODEX_QUOTA_GUARD_MANAGED_SETTINGS
-  ?? managedFile(stateRoot, profileKey(home));
-if (typeof settingsPath !== "string" || !isAbsolute(settingsPath)) throw Error("Invalid managed settings path");
+const settingsPath = installationSettingsPath(home, registration?.env?.CODEX_QUOTA_GUARD_MANAGED_SETTINGS);
 const directory = resolve(dirname(settingsPath));
-if (purge) {
-  const scope = relative(stateRoot, directory);
-  if (!/^core-[a-f0-9]{64}$/.test(scope) || resolve(stateRoot, scope) !== directory) {
-    throw Error("Refusing to purge an unrecognized state directory");
-  }
-  if (existsSync(directory) && (lstatSync(directory).isSymbolicLink()
-    || lstatSync(stateRoot).isSymbolicLink()
-    || relative(realpathSync(stateRoot), realpathSync(directory)) !== scope)) {
-    throw Error("Refusing to purge redirected state");
-  }
-}
 const settings = existsSync(settingsPath) ? readManagedSettings(settingsPath) : null;
 if (registration) {
   let inGuard = false;
