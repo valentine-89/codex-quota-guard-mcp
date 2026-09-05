@@ -7,6 +7,7 @@ import type { CheckpointPayload } from "./types.js";
 import { compactQuota, summaryPreflight, summaryQuota } from "./quota-output.js";
 
 export const SERVER_INSTRUCTIONS = [
+  "Before claiming early auto-resume is enabled, require quota_status.monitor.available=true. If unavailable, run the installed scheduler-bridge-doctor and resolve its reported configuration/context issue, then recheck. defer_until_reset.earlyRecovery describes readiness; canSchedule only permits the original timed heartbeat. Never promise early recovery when readiness is false.",
   "Use this server for substantial or long-running work, not for every command or small read.",
   "Use workspace paths in the Guard host format; Windows-hosted WSL callers must use the wslpath -w result.",
   "For a schedulable defer, pass automationRequest unchanged to the host automation_update tool; do not inspect automations, browse scheduling docs, or rewrite its fixed prompt, then attach only the returned automation ID.",

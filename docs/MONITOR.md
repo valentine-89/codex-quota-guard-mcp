@@ -8,7 +8,7 @@ A poll is allowed only when all three conditions hold:
 2. At least one active defer remains in the waiting stage.
 3. The current Codex task supplied a valid scheduler capability.
 
-The capability transport is platform-specific: a Windows named pipe on Windows or an absolute Unix-domain socket path on Linux/macOS. It is never accepted from a tool input and becomes available only after the Codex task context is verified. `CODEX_QUOTA_GUARD_SCHEDULER_SERVER` may be supplied through the install environment or Codex host environment; the installer forwards it but never discovers or guesses a private application path.
+The capability transport is a host-provided Windows named pipe or Unix socket. It becomes available only after task context verification. Runtime discovery uses `CODEX_ELECTRON_RESOURCES_PATH`, the registered Windows OpenAI.Codex package, or standard macOS application resources. `CODEX_QUOTA_GUARD_SCHEDULER_SERVER` is an explicit override; a saved server path is used when no application is discovered. Ambiguous installations are rejected. Each bounded binding rechecks context and can replace the scheduler connection without restarting the shared core. Stable MCP handshake is used; protocol 2026-07-28 is not attempted for this bridge.
 
 The poll uses one short-lived app-server child and the normal shared cache/lease/backoff path. SQLite claims make multiple ticks or bootstrap contenders idempotent. Scheduler dispatch is fenced and advances an owned heartbeat at most once; an uncertain acknowledgement is never replayed automatically.
 

@@ -118,7 +118,7 @@ test("capability renewal serializes dispatch, verifies candidates and retains a 
     assert.equal(await replacement, true);
     assert.equal(await rpc.bind("\\\\.\\pipe\\bad", task), false);
     assert.equal(await rpc.bind("\\\\.\\pipe\\new", task), true);
-    assert.equal(events.filter(e => e === "verify:new").length, 1);
+    assert.equal(events.filter(e => e === "verify:new").length, 2);
     assert.ok(!events.includes("close:new"));
     await rpc.call({}, task);
     assert.equal(events.at(-1), "call:new");

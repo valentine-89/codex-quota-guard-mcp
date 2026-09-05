@@ -38,7 +38,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   async ready(): Promise<void> {
     if (this.client) return;
     const client = new Client({ name: "quota-guard-monitor", version: "2.1.0" }, {
-      versionNegotiation: { mode: { pin: "2026-07-28" } },
+      versionNegotiation: { mode: "legacy" },
     });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
       env: Object.fromEntries(Object.entries(this.environment).filter((entry): entry is [string, string] => entry[1] !== undefined)), stderr: "pipe" });
@@ -61,15 +61,9 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
       response = await this.client!.callTool({ name: "automation_update", arguments: args,
         _meta: { threadId: taskId } }, { timeout: 15_000 });
     } catch { await this.close(); throw new Error("SCHEDULER_CALL_FAILED"); }
-    if (response.isError) return false;
-    const content = response.content as Array<{ type: string; text?: string }>;
-    return content.some(item => {
-      if (item.type !== "text" || !item.text) return false;
-      try {
-        const ack = JSON.parse(item.text) as Record<string, unknown>;
-        return ack.automationId === args.id && ack.mode === args.mode;
-      } catch { return false; }
-    });
+    // Host may render a card instead of returning a JSON acknowledgement.
+    // The bridge verifies the exact persisted result after a successful call.
+    return !response.isError;
   }
   async close(): Promise<void> {
     await this.transport?.close(); this.client = undefined; this.transport = undefined;
@@ -92,14 +86,16 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
   private tail: Promise<unknown> = Promise.resolve();
   private stopped = false;
   private bindingReason = "SCHEDULER_NOT_BOUND";
-  constructor(private readonly serverPath: string,
+  constructor(private serverPath: string,
     private readonly factory: (environment: NodeJS.ProcessEnv) => ContextSchedulerRpc = env => new DesktopSchedulerRpc(serverPath, env),
-    private readonly hostPlatform: NodeJS.Platform = process.platform) {
+    private readonly hostPlatform: NodeJS.Platform = process.platform,
+    private readonly resolveServer?: () => string) {
     this.current = factory(process.env);
   }
   available(): boolean { return !!this.verifiedPipe && isAbsolute(this.serverPath) && existsSync(this.serverPath) && !this.stopped; }
   unavailableReason(): string | null {
     if (this.stopped) return "SCHEDULER_CLOSED";
+    if (!this.available() && this.bindingReason === "SCHEDULER_DISCOVERY_AMBIGUOUS") return this.bindingReason;
     if (!this.serverPath) return "SCHEDULER_SERVER_UNCONFIGURED";
     if (!isAbsolute(this.serverPath) || !existsSync(this.serverPath)) return "SCHEDULER_SERVER_INVALID";
     return this.available() ? null : this.bindingReason;
@@ -109,7 +105,11 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
   }
   ready(): Promise<void> { return this.serialize(() => { if (this.stopped) throw new Error("SCHEDULER_CLOSED"); return this.current.ready(); }); }
   call(args: Record<string, unknown>, taskId: string): Promise<boolean> {
-    return this.serialize(() => { if (this.stopped) throw new Error("SCHEDULER_CLOSED"); return this.current.call(args, taskId); });
+    return this.serialize(async () => {
+      if (this.stopped) throw new Error("SCHEDULER_CLOSED");
+      try { return await this.current.call(args, taskId); }
+      catch (error) { this.verifiedPipe = undefined; this.bindingReason = "SCHEDULER_DISCOVERY_FAILED"; throw error; }
+    });
   }
   bind(pipePath: string, taskId: string): Promise<boolean> {
     // Accept only a local Windows named pipe or POSIX Unix-domain socket inherited from Codex.
@@ -121,11 +121,21 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
     }
     return this.serialize(async () => {
       if (this.stopped) return false;
-      if (pipePath === this.verifiedPipe) return true;
-      const candidate = this.factory({ ...process.env, CODEX_APP_TOOLS_PIPE_PATH: pipePath });
+      let nextPath: string;
+      try { nextPath = this.resolveServer?.() ?? this.serverPath; }
+      catch { this.bindingReason = "SCHEDULER_DISCOVERY_AMBIGUOUS"; return false; }
+      if (!nextPath || !isAbsolute(nextPath) || !existsSync(nextPath)) {
+        this.serverPath = nextPath; this.verifiedPipe = undefined; return false;
+      }
+      if (pipePath === this.verifiedPipe && nextPath === this.serverPath && this.available()) {
+        try { await this.current.verifyContext(taskId); return true; }
+        catch { this.verifiedPipe = undefined; }
+      }
+      const environment = { ...process.env, CODEX_APP_TOOLS_PIPE_PATH: pipePath };
+      const candidate = this.resolveServer ? new DesktopSchedulerRpc(nextPath, environment) : this.factory(environment);
       try { await candidate.verifyContext(taskId); }
       catch (error) { this.bindingReason = schedulerFailureReason(error); await candidate.close(); return false; }
-      await this.current.close(); this.current = candidate; this.verifiedPipe = pipePath;
+      await this.current.close(); this.current = candidate; this.verifiedPipe = pipePath; this.serverPath = nextPath;
       return true;
     });
   }
@@ -170,10 +180,12 @@ export class DesktopSchedulerBridge implements SchedulerBridge {
     await this.rpc.ready();
     const record = this.record(defer);
     if (!record || signature(record) !== definition.serialized || !authorize()) return false;
-    return this.rpc.call({ mode: "update", id: record.id, kind: "heartbeat", name: record.name,
+    const sent = await this.rpc.call({ mode: "update", id: record.id, kind: "heartbeat", name: record.name,
       prompt: record.prompt, status: record.status, rrule: EARLY_RRULE, targetThreadId: record.target_thread_id,
       ...(record.notification_policy === undefined ? {} : { notificationPolicy: record.notification_policy }),
       ...(record.destination === undefined ? {} : { destination: record.destination }) }, defer.taskId);
+    const updated = this.record(defer);
+    return sent && updated !== null && signature(updated) === this.expected(definition);
   }
   async cancel(defer: StoredDefer, expected: string, authorize: () => boolean): Promise<boolean> {
     await this.rpc.ready();
@@ -181,7 +193,8 @@ export class DesktopSchedulerBridge implements SchedulerBridge {
     // Deleted/paused/edited by the user: relinquish ownership rather than touch it.
     if (!record || signature(record) !== expected) return true;
     if (!authorize()) return false;
-    return this.rpc.call({ mode: "delete", id: record.id }, defer.taskId);
+    const sent = await this.rpc.call({ mode: "delete", id: record.id }, defer.taskId);
+    return sent && !existsSync(join(this.codexHome, "automations", defer.automationId!, "automation.toml"));
   }
   close(): Promise<void> { return this.rpc.close(); }
 }

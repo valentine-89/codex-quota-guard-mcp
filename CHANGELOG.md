@@ -4,6 +4,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Automatically discover current Desktop scheduler resources; validate stable MCP handshake, capability and task context.
+- Recheck bindings after host changes; verify persisted schedules after card responses.
+- Capture heartbeat baselines while offline and expose early-recovery readiness with required repair instructions.
+
 ## [2.1.0] - 2026-09-05
 
 ### Changed

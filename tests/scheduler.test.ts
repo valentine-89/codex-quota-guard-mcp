@@ -22,10 +22,19 @@ function fixture() {
   writeFileSync(file, stringify(initial));
   const calls: Record<string, unknown>[] = [];
   let onReady = (): void => {};
+  let persist = true;
   const rpc: SchedulerRpc = { ready: async () => { onReady(); }, close: async () => {},
-    call: async args => { calls.push(args); return true; } };
+    call: async args => {
+      calls.push(args);
+      if (persist) {
+        if (args.mode === "delete") rmSync(file);
+        else writeFileSync(file, stringify({ ...parse(readFileSync(file, "utf8")), rrule: args.rrule as string }));
+      }
+      return true;
+    } };
   return { dir, file, defer, initial, calls, bridge: new DesktopSchedulerBridge(dir, rpc, () => true),
     onReady: (fn: () => void) => { onReady = fn; },
+    setPersist: (value: boolean) => { persist = value; },
     write: (patch: Record<string, unknown>) => writeFileSync(file, stringify({ ...initial, ...patch })),
     close: () => { store.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
@@ -39,11 +48,21 @@ test("scheduler updates only exact owned heartbeat and preserves prompt/notifica
     assert.equal(f.calls[0]?.rrule, EARLY_RRULE);
     assert.equal(f.calls[0]?.prompt, f.initial.prompt);
     assert.equal(f.calls[0]?.notificationPolicy, "failed_runs_only");
-    // Adapter never writes TOML itself.
-    assert.equal(parse(readFileSync(f.file, "utf8")).rrule, f.initial.rrule);
+    // Only the mock host writes TOML; bridge verifies the resulting schedule.
+    assert.equal(parse(readFileSync(f.file, "utf8")).rrule, EARLY_RRULE);
     f.write({ rrule: EARLY_RRULE, updated_at: 9_000 });
     assert.equal(await f.bridge.cancel(f.defer, f.bridge.expected(definition), () => true), true);
     assert.equal(f.calls[1]?.mode, "delete");
+  } finally { f.close(); }
+});
+
+test("successful host response without persisted schedule is unconfirmed", async () => {
+  const f = fixture();
+  try {
+    f.setPersist(false);
+    const definition = (await f.bridge.read(f.defer))!;
+    assert.equal(await f.bridge.advance(f.defer, definition, () => true), false);
+    assert.equal(parse(readFileSync(f.file, "utf8")).rrule, f.initial.rrule);
   } finally { f.close(); }
 });
 

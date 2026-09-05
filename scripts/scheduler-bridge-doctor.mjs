@@ -1,11 +1,13 @@
 // Read-only capability probe. Never calls a tool, starts a turn, or edits an automation.
 import { schedulerCapabilityReason } from "../dist/scheduler-capability.js";
+import { discoverSchedulerServer } from "../dist/scheduler-discovery.js";
 import { isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const { values } = parseArgs({ options: { server: { type: "string" } } });
+values.server ??= discoverSchedulerServer();
 const report = (result) => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 
 if (!values.server || !isAbsolute(values.server)) {
@@ -16,7 +18,7 @@ if (!values.server || !isAbsolute(values.server)) {
   process.exitCode = 2;
 } else {
   const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "2.1.0" }, {
-    versionNegotiation: { mode: { pin: "2026-07-28" } },
+    versionNegotiation: { mode: "legacy" },
   });
   // Use the shipped server; do not reimplement its pipe protocol or peer authorization.
   const transport = new StdioClientTransport({

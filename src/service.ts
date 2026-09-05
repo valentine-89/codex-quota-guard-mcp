@@ -60,7 +60,7 @@ export class QuotaGuardService {
     this.monitorReason = reason ?? (() => capability() ? null : "SCHEDULER_NOT_BOUND");
   }
   setAutomationCapture(capture: (defer: StoredDefer) => string | null): void { this.captureAutomation = capture; }
-  monitorStatus(): object {
+  monitorStatus() {
     const state = this.store.monitor.status(this.key);
     return { available: this.monitorCapability(), unavailableReason: this.monitorReason(), intervalMs: MONITOR_INTERVAL_MS,
       pendingRecords: this.store.monitor.list(this.key).length,
@@ -557,6 +557,7 @@ export class QuotaGuardService {
     deferId: string; defer: StoredDefer; checkpoint: StoredCheckpoint; resumeAt: string | null; canSchedule: boolean;
     reason: "scheduled" | "reset_too_far" | "reset_unknown" | "advisory_only"; automationPrompt: string;
     automationRequest: ResumeAutomationRequest | null; quota: QuotaSnapshot;
+    earlyRecovery: { ready: boolean; reason: string | null; requiredAction: string | null };
   }> {
     if (!payload.taskId) throw new Error("taskId is required for defer_until_reset in v0.2");
     const status = await this.quotaStatus();
@@ -578,7 +579,10 @@ export class QuotaGuardService {
       ? resumeAutomationRequest(defer.id, payload.taskId, resumeAtMs)
       : null;
     return { deferId: defer.id, defer, checkpoint, resumeAt: iso(resumeAtMs), canSchedule, reason,
-      automationPrompt, automationRequest, quota };
+      automationPrompt, automationRequest, quota,
+      earlyRecovery: { ready: this.monitorStatus().available, reason: this.monitorStatus().unavailableReason,
+        requiredAction: this.monitorStatus().available ? null
+          : "Run scheduler-bridge-doctor from the installed Guard. Resolve discovery/context failure and recheck quota_status.monitor.available. Until verified, report only the original scheduled wake; do not promise early recovery." } };
   }
 
   attachAutomation(deferId: string, automationId: string): StoredDefer {

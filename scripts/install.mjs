@@ -44,7 +44,7 @@ if (enableAutoReset) {
   } finally { if (existsSync(temporaryGuard)) rmSync(temporaryGuard, { force: true }); }
 }
 const forwarded = ["CODEX_APP_TOOLS_PIPE_PATH", "CODEX_MCP_NODE_PATH", "CODEX_THREAD_ID",
-  "CODEX_QUOTA_GUARD_SCHEDULER_SERVER"];
+  "CODEX_QUOTA_GUARD_SCHEDULER_SERVER", "CODEX_ELECTRON_RESOURCES_PATH"];
 const newEnvironment = { ...registration.env, CODEX_HOME: home,
   CODEX_QUOTA_GUARD_NODE: settings.nodeExecutable, CODEX_QUOTA_GUARD_MANAGED_SETTINGS: provision.settingsPath };
 if (process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER && registration.env?.CODEX_QUOTA_GUARD_SCHEDULER_SERVER) {

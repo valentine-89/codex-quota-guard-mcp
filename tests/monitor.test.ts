@@ -88,6 +88,20 @@ test("no scheduler capability performs no reads or mutations", async () => {
   } finally { await f.close(); }
 });
 
+test("attachment while monitor unavailable keeps baseline for later recovery", async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.deferred.earlyRecovery.ready, false);
+    assert.ok(f.deferred.earlyRecovery.requiredAction);
+    f.setEnabled(false);
+    assert.ok(f.first.monitor.list(f.key)[0]?.originalAutomation);
+    f.setRaw(rawQuota(0, 20_000)); f.advance(); await f.monitor.tick();
+    assert.equal(f.writes(), 0);
+    f.setEnabled(true); await f.monitor.tick();
+    assert.equal(f.writes(), 1);
+  } finally { await f.close(); }
+});
+
 test("manual supersession during scheduler preparation prevents the external update", async () => {
   const f = await fixture();
   try {

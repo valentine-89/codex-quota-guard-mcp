@@ -1,5 +1,9 @@
 # Codex Quota Guard MCP 2.1.0
 
+Scheduler connection is automatic for discoverable Desktop installations. Guard resolves current Desktop resources on context binding (Windows registered package or macOS application resources), validates the stable MCP handshake, advertised automation capability and task context. `CODEX_QUOTA_GUARD_SCHEDULER_SERVER` explicitly overrides discovery. Multiple candidates require an explicit selection. No pipe or account credential is saved.
+
+`defer_until_reset.earlyRecovery` reports whether early wake is ready. If false, Codex must resolve the diagnostic and recheck before claiming early recovery; the original timed heartbeat can still be created. Existing defers without an original automation baseline are not automatically adopted: resume manually and create a new defer if still necessary. Reconnect Desktop once to load an updated Guard connector; scheduler rediscovery does not reinstall or stop the shared core.
+
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
 `quota_status` and `job_preflight` return short action summaries by default (about 1 KB in normal cases). Use `detail="full"` for diagnostics or `detail="compact"` for deduplicated quota data. All modes use the same quota read and policy. See [MCP API](docs/MCP_API.md).
