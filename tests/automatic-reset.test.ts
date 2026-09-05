@@ -44,6 +44,7 @@ function resetFixture(options: { remaining?: number; planType?: string; resetDis
     sleep: async ms => { sleeps.push(ms); now += ms; if (sleeps.length === 2) propagated = true; },
   });
   return { directory, store, service, config, sleeps, reads: () => reads,
+    advance(ms: number) { now += ms; },
     setPropagated(value: boolean) { propagated = value; }, close() { store.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
@@ -63,6 +64,25 @@ test("recommendation is opt-in, threshold-inclusive, credit-backed, and strictly
       assert.equal(status.resetCredit.recommendation !== null, input.expected === "weekly_threshold_and_reset_far");
     } finally { f.close(); }
   }
+});
+
+test("cached reset recommendation expires at the exact horizon without refreshing quota", async () => {
+  const f = resetFixture({ resetDistanceMs: 3 * DAY + 1_000 });
+  try {
+    assert.ok((await f.service.quotaStatusForRequest()).resetCredit.recommendation);
+    f.advance(999);
+    assert.ok((await f.service.quotaStatusForRequest()).resetCredit.recommendation);
+    f.advance(1);
+    for (const elapsed of [0, 1_000]) {
+      f.advance(elapsed);
+      const status = await f.service.quotaStatusForRequest();
+      assert.equal(status.source, "cache");
+      assert.equal(status.stale, false);
+      assert.equal(status.resetCredit.recommendation, null);
+      assert.equal(status.resetCredit.reason, "weekly_reset_within_72h");
+    }
+    assert.equal(f.reads(), 1);
+  } finally { f.close(); }
 });
 
 test("missing reset-credit payload is safely normalized as zero available", async () => {
@@ -145,6 +165,15 @@ test("definitive reset follow-up rechecks at 3/5/10 schedule and stops when prop
     assert.equal(verified.resetCredit.verification, "verified");
     assert.equal(verified.resetCredit.recommendation, null);
     assert.equal(f.reads(), 3);
+    for (const outcome of ["reset", "alreadyRedeemed"] as const) {
+      const replay = await f.service.quotaStatusForRequest({ ...recommendation, outcome });
+      assert.equal(replay.resetCredit.verification, "verified");
+      assert.equal(replay.resetCredit.recommendation, null);
+    }
+    assert.deepEqual(f.sleeps, [3_000, 5_000]);
+    assert.equal(f.reads(), 3);
+    await assert.rejects(() => f.service.quotaStatusForRequest({ ...recommendation, outcome: "uncertain" }),
+      /RESET_FOLLOWUP_REPLAY/);
   } finally { f.close(); }
 });
 
@@ -177,6 +206,18 @@ test("unobserved propagation consumes the epoch once and never emits another key
     const pending = await service.quotaStatusForRequest({ recommendationId: recommendation.recommendationId,
       idempotencyKey: recommendation.idempotencyKey, outcome: "reset" });
     assert.equal(pending.resetCredit.verification, "consumed_pending_propagation");
+    for (const outcome of ["uncertain", "noCredit", "nothingToReset"] as const) {
+      await assert.rejects(() => service.quotaStatusForRequest({ ...recommendation, outcome }), /RESET_FOLLOWUP_REPLAY/);
+      assert.equal(store.getResetRecommendation(recommendation.recommendationId, recommendation.idempotencyKey)?.state,
+        "consumed");
+    }
+    const afterChecks = now;
+    for (const outcome of ["reset", "alreadyRedeemed"] as const) {
+      const replay = await service.quotaStatusForRequest({ ...recommendation, outcome });
+      assert.equal(replay.resetCredit.recommendation, null);
+      assert.equal(replay.resetCredit.verification, "consumed_pending_propagation");
+    }
+    assert.equal(now, afterChecks, "duplicate outcomes must not repeat propagation sleeps");
     const later = await service.quotaStatusForRequest();
     assert.equal(later.resetCredit.recommendation, null);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }

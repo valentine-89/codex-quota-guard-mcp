@@ -345,7 +345,10 @@ export class QuotaGuardService {
     const transition = followup.outcome === "uncertain" ? "uncertain"
       : followup.outcome === "noCredit" ? "no_credit"
       : followup.outcome === "nothingToReset" ? "nothing_to_reset" : "consumed";
-    if (["verified", "no_credit", "nothing_to_reset"].includes(record.state) && record.state !== transition) {
+    if (["consumed", "verified", "no_credit", "nothing_to_reset"].includes(record.state)) {
+      if (record.state === transition || (record.state === "verified" && transition === "consumed")) {
+        return this.quotaStatus();
+      }
       throw new Error("RESET_FOLLOWUP_REPLAY: terminal recommendation cannot change outcome.");
     }
     const updated = this.store.updateResetRecommendation(record.id, record.idempotencyKey, transition, this.now())!;
@@ -581,11 +584,18 @@ export class QuotaGuardService {
     stale ||= expired;
     if (stale) this.store.invalidateObservations(this.key);
     const refreshInProgress = this.store.hasActiveLease(this.key, this.now());
-    const resetCredit = !this.config.automaticWeeklyReset.enabled
+    let resetCredit = !this.config.automaticWeeklyReset.enabled
       ? { ...snapshot.resetCredit, enabled: false, recommendation: null, reason: "disabled" }
       : stale || refreshInProgress || backoffUntilMs !== null
         ? { ...snapshot.resetCredit, recommendation: null, verification: "unavailable" as const, reason: "quota_unavailable" }
         : snapshot.resetCredit;
+    if (resetCredit.recommendation) {
+      const resetAtMs = Date.parse(resetCredit.recommendation.weeklyResetsAt);
+      if (!Number.isFinite(resetAtMs)
+        || resetAtMs - this.now() <= this.config.automaticWeeklyReset.minimumTimeToResetMs) {
+        resetCredit = { ...resetCredit, recommendation: null, reason: "weekly_reset_within_72h" };
+      }
+    }
     return this.decorate({ ...snapshot, resetCredit, nextRefreshAt: new Date(nextRefreshAtMs).toISOString(), stale,
       refreshInProgress, backoffUntil: iso(backoffUntilMs), source: "cache" }, fingerprint);
   }

@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-05
+
+### Fixed
+
+- Cached automatic-reset recommendations now stop at the configured reset horizon, including exactly 72 hours by default, without forcing a quota refresh.
+- Consumed reset outcomes cannot be downgraded by late conflicting follow-ups. Repeated successful outcomes preserve consumed or verified state without repeating propagation checks.
+
 ## [1.0.0] - 2026-09-05
 
 ### Added
