@@ -9,13 +9,13 @@ export const SERVER_INSTRUCTIONS = [
   "Use this server for substantial or long-running work, not for every command or small read.",
   "Use workspace paths in the Guard host format; Windows-hosted WSL callers must use the wslpath -w result.",
   "For a schedulable defer, pass automationRequest unchanged to the host automation_update tool; do not inspect automations, browse scheduling docs, or rewrite its fixed prompt, then attach only the returned automation ID.",
-  "Call quota_status near the start, then call job_preflight with a stable jobId before each bounded substantial segment.",
-  "During a substantial job, call quota_status again at safe checkpoints before starting the next bounded segment; never interrupt an atomic or unsafe operation solely to check quota.",
+  "Call quota_status near the start, then call job_preflight with a stable jobId before each bounded substantial segment. A timely job_preflight also counts as a quota check; avoid redundant paired calls.",
+  "During active work, recheck quota by checkAgainBy at the next tool boundary; do not wait for a major checkpoint. Never begin an unsplittable model operation beyond the deadline. A running model generation cannot be interrupted by this MCP; never interrupt an atomic or unsafe operation solely to check quota.",
   "Keep main work on the primary lane; use secondary only when quota_status explicitly reports it available.",
-  "Treat allow and caution as admission for that segment, not a reservation. On caution, checkpoint before more substantial work unless quotaPath is weekly_advisory, and disclose mayConsumeCredits when true.",
+  "Honor canStartSegment, validUntil and maxSegmentMinutes even on allow/caution. If canStartSegment=false, split and preflight a shorter segment or wait until checkAgainBy; do not execute the oversized segment. Save a checkpoint when checkpointRequired=true. Treat allow and caution as time-limited admission, not a reservation. On caution, checkpoint before more substantial work unless quotaPath is weekly_advisory, and disclose mayConsumeCredits when true.",
   "On defer, immediately call defer_until_reset with bounded state. Never schedule when canSchedule is false.",
   "Before manual or automated resume, call resume_prepare first; stop when shouldExit is true or canResume is false.",
-  "Do not poll, force quota refresh, or store credentials, complete prompts, or complete model responses in checkpoints.",
+  "Do not idle-poll or force quota refresh, or store credentials, complete prompts, or complete model responses in checkpoints.",
   "Pass agentProtocol=auto-reset-v1 to quota_status and job_preflight. When quota_status returns a resetCredit recommendation, its enabled local policy is standing user authorization: call the host consume_usage_reset tool immediately with the exact idempotencyKey and without asking again; never buy a reset or credits. Retry an uncertain host response only with the same key, then report the exact outcome through quota_status.resetFollowup. Never invent a recommendation or key.",
 ].join(" ");
 
@@ -72,24 +72,24 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "1.0.1" },
+    { name: "codex-quota-guard-mcp", version: "1.1.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
   server.registerTool("quota_status", {
-    description: "Requires agentProtocol=auto-reset-v1. Read current shared Codex quota near the start of long work. If resetCredit.recommendation is present, call host consume_usage_reset with its exact idempotencyKey without asking again, then report the outcome in resetFollowup. The proof-bound follow-up may recheck after 3/5/10 seconds; there is no generic force refresh.",
+    description: "Requires agentProtocol=auto-reset-v1. Read current shared Codex quota near the start of long work and by checkAgainBy at tool boundaries while active. If resetCredit.recommendation is present, call host consume_usage_reset with its exact idempotencyKey without asking again, then report the outcome in resetFollowup. The proof-bound follow-up may recheck after 3/5/10 seconds; there is no generic force refresh.",
     inputSchema: z.object({ agentProtocol, resetFollowup: resetFollowup.optional() }).strict(),
   }, async (input) => { try { requireAgentProtocol(input.agentProtocol); return result({
     ...await service.quotaStatusForRequest(input.resetFollowup), monitor: service.monitorStatus(),
   }); } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
-    description: "Requires agentProtocol=auto-reset-v1. Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Use primary for main work; secondary only when quota_status reports it.",
+    description: "Requires agentProtocol=auto-reset-v1. Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Honor canStartSegment=false by splitting and preflighting again; admission expires at validUntil. Save progress when checkpointRequired. Use primary for main work; secondary only when quota_status reports it.",
     inputSchema: z.object({
       agentProtocol,
       jobId: z.string().min(1).max(256).describe("Stable idempotency identifier for this part-job."),
       taskId, workspaceRoot, jobClass: z.enum(["small", "medium", "long"]),
-      estimatedMinutes: z.number().min(0).max(10_080).optional(), description: z.string().min(1).max(2_000), laneId,
+      estimatedMinutes: z.number().min(0).max(10_080).optional().describe("Active Codex work duration for this segment, excluding detached GPU/process waiting time."), description: z.string().min(1).max(2_000), laneId,
       sessionRole: z.enum(["main", "lightweight"]).optional().describe("Convenience alias: lightweight selects secondary; main selects primary."),
     }),
   }, async (input) => {

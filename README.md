@@ -101,3 +101,9 @@ These portable checks run on Node 22/24 for Windows x64/ARM64, Ubuntu x64/ARM64,
 Release acceptance is recorded by guest OS. A Windows VM is simply a Windows acceptance result; there are no hypervisor-specific branches.
 
 See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md), [monitor behavior](docs/MONITOR.md), [Windows and WSL](docs/WINDOWS_AND_WSL.md), [MCP API](docs/MCP_API.md), and [troubleshooting](docs/TROUBLESHOOTING.md).
+
+## Active-work pacing (1.1 trial)
+
+Quota checks now follow a 30–60 second deadline during active work, independently of saved checkpoints. Both status and preflight use bounded shared freshness. Honor `canStartSegment`, `validUntil` and `maxSegmentMinutes`; split oversized active-model segments and recheck at tool boundaries. Save progress before expensive or detached GPU jobs. Idle GPU waiting is not active Codex work.
+
+Forecasts use fresh quota samples and reset on account/plan/bucket changes, quota restoration, reset epochs, errors or long gaps. Cold starts use short segments; stale data cannot admit new work. These estimates are advisory and cannot interrupt a model generation. See [MCP API](docs/MCP_API.md) for fields, initial thresholds and trial limitations.

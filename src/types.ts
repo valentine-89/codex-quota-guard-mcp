@@ -1,3 +1,4 @@
+import type { Pacing } from "./pacing.js";
 export type QuotaRecommendation = "continue" | "caution" | "checkpoint_and_defer";
 export type QuotaSource = "codex-app-server" | "cache" | "unavailable";
 export type QuotaPath = "included" | "credits" | "weekly_advisory" | "unavailable";
@@ -86,6 +87,8 @@ export interface QuotaLaneStatus {
 export interface QuotaError { code: string; message: string }
 
 export interface QuotaSnapshot {
+  pacing?: Partial<Record<QuotaLaneId, Pacing>>;
+  checkAgainBy?: string;
   fiveHour: QuotaWindow | null;
   weekly: QuotaWindow | null;
   longWindows: QuotaWindow[];
@@ -169,6 +172,11 @@ export interface StoredResetRecommendation {
 }
 
 export interface JobPreflightResult {
+  canStartSegment?: boolean;
+  validUntil?: string | null;
+  checkAgainBy?: string;
+  maxSegmentMinutes?: number;
+  checkpointRequired?: boolean;
   decision: JobDecision;
   reason: string;
   requiredAction: string | null;

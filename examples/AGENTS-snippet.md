@@ -11,3 +11,5 @@
 - Honor user requests to increase/decrease the threshold via `quota_profile adjust`; use `quota_profile reset` only when requested.
 - Never place credentials, complete prompts, or complete model responses in checkpoint fields.
 - When the managed monitor is available, check `quota_status.monitor` for capability/errors. Do not create a five-minute AI polling heartbeat or force refresh. Account changes can recover the same role using the new account profile. Keep the original scheduled wake until recovery is confirmed; only quota-guard-owned automations may be advanced or deleted. Let `resume_prepare` validate an early wake before work.
+
+During active work, check quota by `checkAgainBy` at tool boundaries instead of waiting for a major checkpoint. Honor `canStartSegment=false`: split and preflight a shorter active-model segment or wait for a new check. Never extend `validUntil` locally. Save progress when `checkpointRequired`; record PID/job ID, outputs and resume steps before detached GPU work. Exclude idle external-process time from `estimatedMinutes`. Guard cannot interrupt a running model generation.

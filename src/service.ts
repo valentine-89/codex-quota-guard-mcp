@@ -16,6 +16,7 @@ import {
   ttlForWindow,
 } from "./policy.js";
 import { accountFingerprint, profileKey } from "./store.js";
+import { pacingFor, samplePacing } from "./pacing.js";
 import { MONITOR_INTERVAL_MS } from "./monitor-state.js";
 import type { StateStore } from "./store.js";
 import type {
@@ -200,8 +201,15 @@ export class QuotaGuardService {
     const activeLane = lanes[snapshot.activeBucket?.laneId ?? "primary"] ?? lanes.primary;
     const profile = activeLane?.profile ?? this.profileFor(snapshot, fingerprint, jobClass);
     const quotaPath = snapshot.stale || snapshot.refreshInProgress ? "unavailable" : quotaPathFor(snapshot.activeBucket, profile.effectiveThresholdPercent, this.config, this.now());
+    const pacing = Object.fromEntries((["primary", "secondary"] as const).map(lane => [lane,
+      pacingFor({ ...snapshot, lanes }, lane, this.store.getPacing(this.key, lane),
+        fingerprint ? JSON.stringify([fingerprint, snapshot.planType, lanes[lane]?.bucket?.limitId]) : null,
+        Math.max(5, lanes[lane]?.profile.effectiveThresholdPercent ?? 5), this.now()),
+    ]));
     return {
       ...snapshot,
+      pacing,
+      checkAgainBy: pacing[snapshot.activeBucket?.laneId ?? "primary"]?.checkAgainBy ?? pacing.primary!.checkAgainBy,
       lanes,
       profile,
       recommendation: quotaPath === "unavailable" ? "checkpoint_and_defer" : recommendationFor(snapshot.activeBucket, profile, this.config, this.now()),
@@ -312,11 +320,19 @@ export class QuotaGuardService {
             nowMs, this.config.sampleWindow);
         }
       }
+      if (!fingerprint || !cached || cached.accountFingerprint !== fingerprint || cached.snapshot.planType !== planType
+        || learningWindowChanged || backoff) this.store.clearPacing(this.key);
+      for (const lane of ["primary", "secondary"] as const) {
+        const bucket = lanes[lane]?.bucket;
+        if (bucket && fingerprint) this.store.savePacing(this.key, lane, samplePacing(this.store.getPacing(this.key, lane),
+          bucket, JSON.stringify([fingerprint, planType, bucket.limitId]), nowMs));
+      }
       snapshot = this.decorate(snapshot, fingerprint);
       snapshot = { ...snapshot, resetCredit: this.resetStatusForFresh(snapshot, fingerprint, resetInventory) };
       this.store.saveCache(this.key, snapshot, nextRefreshAtMs, fingerprint, nowMs);
       return snapshot;
     } catch (error) {
+      this.store.clearPacing(this.key);
       this.store.invalidateObservations(this.key);
       const guardError = toGuardError(error);
       if (guardError.code === "CHATGPT_LOGIN_REQUIRED" || guardError.code === "ACCOUNT_CHANGED_DURING_READ") {
@@ -351,6 +367,7 @@ export class QuotaGuardService {
       }
       throw new Error("RESET_FOLLOWUP_REPLAY: terminal recommendation cannot change outcome.");
     }
+    if (transition === "consumed") this.store.clearPacing(this.key);
     const updated = this.store.updateResetRecommendation(record.id, record.idempotencyKey, transition, this.now())!;
     const cached = this.store.getCache(this.key);
     const baseStatus = cached?.snapshot.resetCredit ?? { enabled: this.config.automaticWeeklyReset.enabled,
@@ -399,18 +416,26 @@ export class QuotaGuardService {
     return { ...latest, resetCredit: pending };
   }
 
-  /** Only detected caution/defer lanes tighten freshness; lease and backoff still apply. */
+  /** Activity-triggered checks share freshness limits, lease and backoff. No idle polling. */
   async quotaStatusForRequest(followup?: ResetFollowup): Promise<QuotaSnapshot> {
     if (followup) return this.reconcileReset(followup);
     const cached = this.store.getCache(this.key);
-    const status = cached && this.isV2Snapshot(cached.snapshot)
-      ? this.decorate(cached.snapshot, cached.accountFingerprint) : null;
-    const nearLimit = Object.values(status?.lanes ?? {}).some(lane => lane.available
-      && (lane.recommendation === "caution" || lane.recommendation === "checkpoint_and_defer"));
-    if (cached && nearLimit && this.now() - cached.fetchedAtMs > INTERACTIVE_REFRESH_MIN_AGE_MS) {
-      this.store.capCacheDeadline(this.key, cached.fetchedAtMs + INTERACTIVE_REFRESH_MIN_AGE_MS);
+    if (cached && this.isV2Snapshot(cached.snapshot)) {
+      const status = this.decorate(cached.snapshot, cached.accountFingerprint);
+      const deadlines = Object.entries(status.pacing ?? {}).filter(([lane]) => status.lanes[lane as QuotaLaneId]?.available)
+        .map(([, p]) => Date.parse(p.checkAgainBy));
+      const deadline = Math.min(cached.fetchedAtMs + 60_000, ...deadlines);
+      // A depleted budget may request an immediate stop, but cannot force backend reads faster than 30s.
+      this.store.capCacheDeadline(this.key, Math.max(cached.fetchedAtMs + INTERACTIVE_REFRESH_MIN_AGE_MS, deadline));
     }
-    return this.quotaStatus();
+    const status = await this.quotaStatus();
+    if (!status.stale && !status.refreshInProgress && status.checkAgainBy) {
+      const fetched = Date.parse(status.fetchedAt!);
+      const deadline = Math.max(fetched + INTERACTIVE_REFRESH_MIN_AGE_MS, Date.parse(status.checkAgainBy));
+      this.store.capCacheDeadline(this.key, deadline);
+      return { ...status, nextRefreshAt: new Date(Math.min(Date.parse(status.nextRefreshAt), deadline)).toISOString() };
+    }
+    return status;
   }
 
   /** Internal timer path, never a public force-refresh input. */
@@ -444,19 +469,36 @@ export class QuotaGuardService {
     if (input.laneId && input.sessionRole && input.laneId !== (input.sessionRole === "lightweight" ? "secondary" : "primary")) {
       throw new Error("laneId conflicts with sessionRole");
     }
-    const status = await this.quotaStatus();
+    const status = await this.quotaStatusForRequest();
     const cache = this.store.getCache(this.key);
     const quota = this.decorate(status, cache?.accountFingerprint ?? null, input.jobClass);
     const laneId = input.laneId ?? (input.sessionRole === "lightweight" ? "secondary" : "primary");
-    let result = preflightLane(quota, input.jobClass, this.config, laneId, this.now());
+    let result = { ...preflightLane(quota, input.jobClass, this.config, laneId, this.now()),
+      canStartSegment: false, validUntil: null as string | null, checkAgainBy: quota.nextRefreshAt,
+      maxSegmentMinutes: 0, checkpointRequired: true };
+    const pacing = quota.pacing?.[laneId];
+    if (pacing) {
+      const mustSplit = input.estimatedMinutes !== undefined && input.estimatedMinutes > pacing.maxSegmentMinutes;
+      const exhausted = pacing.maxSegmentMinutes <= 0;
+      const enforce = result.decision !== "defer";
+      if (result.decision !== "defer" && enforce && (mustSplit || exhausted)) {
+        result = { ...result, decision: "caution", reason: "The requested segment exceeds the current quota-check deadline.",
+          requiredAction: "Checkpoint before expensive work. Split into bounded segments and recheck by checkAgainBy; do not start an unsplittable model operation beyond this budget." };
+      }
+      result = { ...result, canStartSegment: result.decision !== "defer" && !exhausted && !(enforce && mustSplit),
+        validUntil: result.decision === "defer" || exhausted || (enforce && mustSplit) ? null : pacing.checkAgainBy,
+        checkAgainBy: pacing.checkAgainBy, maxSegmentMinutes: pacing.maxSegmentMinutes,
+        checkpointRequired: result.decision === "defer" || (enforce && (mustSplit || exhausted || input.jobClass === "long")) };
+    }
     const laneBucket = quota.lanes[laneId]?.bucket ?? null;
     const identity = this.identity(quota, cache?.accountFingerprint ?? null, laneBucket);
     const laneWindow = allowanceWindow(laneBucket);
     if (result.decision !== "defer" && (!identity || cache?.snapshot.fetchedAt !== status.fetchedAt)) {
-      return { ...result, decision: "defer", quotaPath: "unavailable", mayConsumeCredits: false,
+      return { ...result, decision: "defer", canStartSegment: false, validUntil: null, maxSegmentMinutes: 0,
+        checkpointRequired: true, quotaPath: "unavailable", mayConsumeCredits: false,
         reason: "Account identity is unavailable or changed during admission; retry on a fresh shared snapshot." };
     }
-    if (result.decision !== "defer" && identity) {
+    if (result.decision !== "defer" && result.canStartSegment !== false && identity) {
       const recorded = this.store.recordAdmission(identity, input, laneWindow?.usedPercent ?? 0, laneWindow?.resetsAt ?? null,
         this.now(), laneBucket?.fiveHour != null);
       result = { ...result, admissionRecorded: recorded };
@@ -564,7 +606,7 @@ export class QuotaGuardService {
     if (recommendation === "checkpoint_and_defer" && age >= this.config.manualResumeMinAgeMs) {
       this.store.expireCache(this.key);
     }
-    const quota = await this.quotaStatus();
+    const quota = await this.quotaStatusForRequest();
     const current = this.store.getCache(this.key);
     const checkpoint = prepared.checkpointId
       ? this.getCheckpoint(input.workspaceRoot, input.taskId, prepared.checkpointId) : null;

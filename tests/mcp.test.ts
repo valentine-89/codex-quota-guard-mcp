@@ -18,7 +18,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     readQuota: async () => rawQuota(25),
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
-  const client = new Client({ name: "quota-guard-test", version: "1.0.1" }, {
+  const client = new Client({ name: "quota-guard-test", version: "1.1.0" }, {
     versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -27,9 +27,9 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "legacy");
-    assert.equal(client.getServerVersion()?.version, "1.0.1");
+    assert.equal(client.getServerVersion()?.version, "1.1.0");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
-    assert.match(client.getInstructions() ?? "", /safe checkpoints/);
+    assert.match(client.getInstructions() ?? "", /checkAgainBy/);
     assert.match(client.getInstructions() ?? "", /never interrupt an atomic or unsafe operation/);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [

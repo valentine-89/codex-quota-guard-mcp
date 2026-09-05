@@ -107,7 +107,7 @@ test("cached weekly policy recomputes reset horizon; reset snapshots revalidate"
     assert.equal((await f.service.jobPreflight(f.job())).quotaPath, "weekly_advisory");
     f.advance(31_000);
     assert.equal((await f.service.jobPreflight(f.job("near"))).decision, "defer");
-    assert.equal(f.reads(), 1); // Same cached usage, current policy time.
+    assert.equal(f.reads(), 2); // Active preflight revalidates at the 30-second deadline.
     f.advance(DAY); f.bucket.secondary!.usedPercent = 0;
     f.bucket.secondary!.resetsAt = (f.now() + 7 * DAY) / 1000;
     assert.equal((await f.service.jobPreflight(f.job("reset"))).decision, "allow");

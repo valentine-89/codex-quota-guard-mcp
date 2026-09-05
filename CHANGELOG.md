@@ -4,6 +4,19 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-05
+
+### Added
+
+- Trial active-work pacing with 30–60 second check deadlines, conservative per-window burn-rate estimates and bounded segment admission metadata.
+- Shared SQLite schema 5 rate samples separate from job-cost learning, invalidated by identity/window changes, restored quota, failures and long gaps.
+- Regression scenarios for rapid depletion, cache reuse, shared services, reset/account changes, long breaks and backend backoff.
+
+### Changed
+
+- Interactive status, preflight and resume share bounded freshness; no public force refresh or idle timer is added.
+- Oversized estimated active-model segments require splitting and do not record an admission. Client instructions distinguish quota checks, saved checkpoints and detached GPU waiting.
+
 ## [1.0.1] - 2026-09-05
 
 ### Fixed

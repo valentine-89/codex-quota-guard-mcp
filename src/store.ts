@@ -13,6 +13,7 @@ import type {
   StoredResetRecommendation,
 } from "./types.js";
 import { redactSensitiveText, sanitizeStringList } from "./security.js";
+import type { PacingSample } from "./pacing.js";
 import { MonitorState } from "./monitor-state.js";
 
 function rowRecord(value: unknown): Record<string, unknown> | null {
@@ -44,9 +45,9 @@ export class StateStore {
     this.database = new DatabaseSync(path);
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
     const version = numeric(rowRecord(this.database.prepare("PRAGMA user_version").get())?.user_version);
-    if (version > 4) {
+    if (version > 5) {
       this.database.close();
-      throw new Error(`State schema ${version} is newer than supported schema 4; upgrade quota guard.`);
+      throw new Error(`State schema ${version} is newer than supported schema 5; upgrade quota guard.`);
     }
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -113,7 +114,11 @@ export class StateStore {
       );
       CREATE INDEX IF NOT EXISTS idx_automatic_reset_epoch
         ON automatic_reset_recommendations(profile_key, account_fingerprint, plan_type, limit_id, weekly_reset_at, created_at_ms DESC);
-      PRAGMA user_version=4;
+      CREATE TABLE IF NOT EXISTS quota_pacing (
+        profile_key TEXT NOT NULL, lane_id TEXT NOT NULL, sample_json TEXT NOT NULL,
+        PRIMARY KEY(profile_key, lane_id)
+      );
+      PRAGMA user_version=5;
     `);
     const deferColumns = this.database.prepare("PRAGMA table_info(defer_records)").all()
       .map((row) => nullableText(rowRecord(row)?.name));
@@ -126,6 +131,19 @@ export class StateStore {
       throw error;
     }
     this.monitor = new MonitorState(this.database);
+  }
+
+  getPacing(key: string, lane: QuotaLaneId): PacingSample | null {
+    const row = rowRecord(this.database.prepare("SELECT sample_json FROM quota_pacing WHERE profile_key=? AND lane_id=?").get(key, lane));
+    return row ? JSON.parse(text(row.sample_json)) as PacingSample : null;
+  }
+
+  savePacing(key: string, lane: QuotaLaneId, sample: PacingSample): void {
+    this.database.prepare("INSERT OR REPLACE INTO quota_pacing VALUES (?,?,?)").run(key, lane, JSON.stringify(sample));
+  }
+
+  clearPacing(key: string): void {
+    this.database.prepare("DELETE FROM quota_pacing WHERE profile_key=?").run(key);
   }
 
   close(): void { this.database.close() }

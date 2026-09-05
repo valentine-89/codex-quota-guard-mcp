@@ -23,7 +23,7 @@ test("refresh lease is shared and expired owners are recoverable", () => {
   }
 });
 
-test("schema v3 upgrades to v4 without losing checkpoints", () => {
+test("schema v3 upgrades to v5 without losing checkpoints", () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-schema-"));
   const path = join(directory, "state.sqlite");
   const legacy = new DatabaseSync(path);
@@ -40,7 +40,7 @@ test("schema v3 upgrades to v4 without losing checkpoints", () => {
   try {
     assert.equal(store.getCheckpoint("profile", directory, "task")?.objective, "preserve");
     const check = new DatabaseSync(path);
-    assert.equal((check.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 4);
+    assert.equal((check.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 5);
     check.close();
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
