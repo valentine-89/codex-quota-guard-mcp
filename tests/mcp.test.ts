@@ -19,7 +19,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     readQuota: async () => { reads++; return rawQuota(25); },
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
-  const client = new Client({ name: "quota-guard-test", version: "2.0.1" }, {
+  const client = new Client({ name: "quota-guard-test", version: "2.0.2" }, {
     versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -28,7 +28,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "legacy");
-    assert.equal(client.getServerVersion()?.version, "2.0.1");
+    assert.equal(client.getServerVersion()?.version, "2.0.2");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.match(client.getInstructions() ?? "", /checkAgainBy/);
     assert.match(client.getInstructions() ?? "", /never interrupt an atomic or unsafe operation/);
@@ -57,7 +57,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     assert.equal(fiveHour.remainingPercent, 75);
     assert.equal(structured.source, "codex-app-server");
     assert.equal((structured.profile as Record<string, unknown>).baselineRemainingPercent, 10);
-    assert.equal(structured.format, "compact-v1");
+    assert.equal(structured.format, undefined);
     assert.equal(structured.activeBucket, undefined);
     const text = response.content.find(item => item.type === "text");
     assert.ok(text?.type === "text");
@@ -71,7 +71,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     assert.ok(fullData.buckets);
     assert.equal(reads, 1, "detail selection must not refresh quota");
     const summary = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
-    assert.equal((summary.structuredContent as Record<string, unknown>).format, "summary-v1");
+    assert.equal((summary.structuredContent as Record<string, unknown>).format, undefined);
     assert.ok(Buffer.byteLength(JSON.stringify(summary.structuredContent)) <= 1_024);
     assert.equal(reads, 1);
     const invalid = await client.callTool({ name: "quota_status", arguments: {
@@ -91,7 +91,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     const first = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
     const retry = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
     assert.equal(first.admissionRecorded, true);
-    assert.equal(first.format, "summary-v1");
+    assert.equal(first.format, undefined);
     assert.ok(Buffer.byteLength(JSON.stringify(first)) <= 1_024);
     const fullJob = (await client.callTool({ name: "job_preflight", arguments: { ...job, detail: "full" } }))
       .structuredContent as Record<string, unknown>;

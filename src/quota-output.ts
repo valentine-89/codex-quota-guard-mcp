@@ -11,8 +11,8 @@ const floorMinutes = (value: number | undefined) => value === undefined ? undefi
 /** Action-oriented view. Diagnostics and learning samples remain available through detail=full. */
 export function summaryQuota(snapshot: QuotaSnapshot, preflight = false) {
   const reset = snapshot.resetCredit;
+  const activePacing = snapshot.pacing?.[snapshot.activeBucket?.laneId ?? "primary"];
   return {
-    ...(!preflight ? { format: "summary-v1" } : {}),
     planType: snapshot.planType,
     fiveHour: shortWindow(snapshot.fiveHour), weekly: shortWindow(snapshot.weekly),
     ...(snapshot.longWindows.some(w => !same(w, snapshot.weekly)) ? {
@@ -25,9 +25,9 @@ export function summaryQuota(snapshot: QuotaSnapshot, preflight = false) {
       recommendation: snapshot.recommendation, quotaPath: snapshot.quotaPath, mayConsumeCredits: snapshot.mayConsumeCredits,
       checkAgainBy: snapshot.checkAgainBy, nextRefreshAt: snapshot.nextRefreshAt,
       policyMode: snapshot.profile.policyMode, thresholdPercent: snapshot.profile.effectiveThresholdPercent,
-      pacing: snapshot.pacing?.primary ? {
-        confidence: snapshot.pacing.primary.confidence,
-        maxSegmentMinutes: floorMinutes(snapshot.pacing.primary.maxSegmentMinutes),
+      pacing: activePacing ? {
+        confidence: activePacing.confidence,
+        maxSegmentMinutes: floorMinutes(activePacing.maxSegmentMinutes),
       } : null,
     } : {}),
     lanes: Object.fromEntries(Object.entries(snapshot.lanes).map(([id, lane]) => [id,
@@ -39,6 +39,9 @@ export function summaryQuota(snapshot: QuotaSnapshot, preflight = false) {
           // Preserve every distinct secondary/individual constraint, even when it exceeds the size target.
           longWindows: lane.bucket?.longWindows.filter(w => !same(w, lane.bucket?.weekly)),
           individualLimit: lane.bucket?.individualLimit,
+          ...(lane.bucket?.spendControlReached ? { spendControlReached: true } : {}),
+          ...(lane.bucket?.rateLimitReachedType ? { rateLimitReachedType: lane.bucket.rateLimitReachedType } : {}),
+          ...(lane.mayConsumeCredits ? { credits: lane.bucket?.credits } : {}),
           checkAgainBy: snapshot.pacing?.[id as keyof typeof snapshot.lanes]?.checkAgainBy,
         },
     ])),
@@ -60,7 +63,7 @@ export function summaryQuota(snapshot: QuotaSnapshot, preflight = false) {
 export function summaryPreflight(value: JobPreflightResult) {
   const { quota, reason, requiredAction, maxSegmentMinutes, ...actions } = value;
   return {
-    format: "summary-v1", ...actions,
+    ...actions,
     ...(value.decision !== "allow" || value.canStartSegment === false ? { reason } : {}),
     ...(requiredAction ? { requiredAction } : {}),
     maxSegmentMinutes: floorMinutes(maxSegmentMinutes),
@@ -74,7 +77,6 @@ export function compactQuota(snapshot: QuotaSnapshot) {
   const otherBuckets = Object.fromEntries(Object.entries(buckets).filter(([, bucket]) =>
     !same(bucket, activeBucket) && !Object.values(lanes).some(lane => same(lane.bucket, bucket))));
   return {
-    format: "compact-v1",
     ...shared,
     // The active windows/profile already exist at the top level.
     longWindows: longWindows.filter(window => !same(window, snapshot.weekly)),

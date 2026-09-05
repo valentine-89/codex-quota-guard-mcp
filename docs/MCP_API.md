@@ -1,6 +1,6 @@
-# MCP API 2.0.1
+# MCP API 2.0.2
 
-`quota_status` and `job_preflight` default to `detail="summary"` (`format="summary-v1"`), normally around 1 KB of JSON. `detail="full"` returns the original data; `detail="compact"` keeps deduplicated quota data (including nested preflight quota). Selecting detail never forces a refresh.
+`quota_status` and `job_preflight` default to `detail="summary"`, normally around 1 KB of JSON. `detail="full"` returns the original data; `detail="compact"` keeps deduplicated quota data (including nested preflight quota). Selecting detail never forces a refresh. Responses omit the redundant `format` marker; no compatibility marker or fallback is provided.
 
 Summary keeps decisions, permissions, deadlines, remaining percentages, resets, lane availability and exceptional limits. Normal `allow` prose, null diagnostics and learning statistics are omitted. Missing error/backoff/reset recommendation means none; `fiveHour=null` means no five-hour window. Active quota is at the root; other available lanes carry their own limits. Status `pacing` holds active confidence and maximum segment minutes; preflight has these action limits at the top level. Minute limits are rounded down. Reset proofs, warnings, errors and required actions are never truncated, so exceptional responses may exceed 1 KB. Text and structured output contain the same summary; an MCP envelope may include both copies.
 
@@ -12,7 +12,7 @@ Call `quota_status` near the start of a long task. Before each substantial segme
 
 During active work, follow `checkAgainBy`. Preflight returns `canStartSegment`, `validUntil`, `maxSegmentMinutes`, and `checkpointRequired`. If `canStartSegment=false`, split the work and preflight again. Save a short checkpoint before expensive or detached GPU work. The MCP cannot interrupt a running model generation.
 
-Pacing starts conservatively, then learns from fresh backend samples. It resets after an account, plan, quota bucket, reset window, or quota increase changes; errors and long breaks also reset it. Cache hits do not create samples. `quota_status.pacing` contains the estimate and deadline for each lane.
+Pacing starts conservatively, then learns from fresh backend samples. It resets after an account, plan, quota bucket, reset window, or quota increase changes; errors and long breaks also reset it. Cache hits do not create samples. Summary `quota_status.pacing` contains the active lane confidence and segment budget; `checkAgainBy` is its deadline. Full and compact detail include per-lane estimates.
 
 Quota checks use shared cache, single-flight refresh, lease, and backoff. There is no public force-refresh input and no idle polling. Estimates are advisory and cannot guarantee that a long model generation will finish before quota exhaustion.
 

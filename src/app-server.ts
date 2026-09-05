@@ -140,7 +140,7 @@ export class CodexAppServerClient {
 
     try {
       await call("initialize", {
-        clientInfo: { name: "codex-quota-guard-mcp", version: "2.0.1" },
+        clientInfo: { name: "codex-quota-guard-mcp", version: "2.0.2" },
         capabilities: { experimentalApi: false },
       });
       child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);

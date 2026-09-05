@@ -87,7 +87,7 @@ try {
   const quota = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
   assert.ok(!quota.isError, "quota_status returned an MCP tool error");
   const structuredQuota = quota.structuredContent;
-  assert.equal(structuredQuota?.format, "summary-v1");
+  assert.equal(structuredQuota?.format, undefined);
   assert.ok(structuredQuota?.lanes && structuredQuota?.resetCredit, "summary fields missing");
   assert.ok(structuredQuota.pacing && structuredQuota.checkAgainBy, "pacing fields missing");
   assert.equal(structuredQuota.stale, false, `Live quota unavailable: ${JSON.stringify(structuredQuota.error)}`);

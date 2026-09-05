@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-09-05
+
+### Fixed
+
+- Summary pacing now follows the active quota lane, including an active secondary bucket.
+- Distinct lane summaries retain spend-control blocks, backend limit reasons and credits when spending is possible.
+
+### Changed
+
+- Removed redundant `format` fields from summary and compact responses, without a compatibility marker or fallback.
+- Added admission-summary regression coverage for allow/caution/defer, split segments, weekly-only quota, secondary quota, credits and backend failures.
+
 ## [2.0.1] - 2026-09-05
 
 ### Changed

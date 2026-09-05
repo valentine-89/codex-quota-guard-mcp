@@ -5,6 +5,74 @@ import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
+test("summary uses active secondary pacing and retains secondary billing constraints", async () => {
+  for (const activeSecondary of [false, true]) {
+    const store = new StateStore(":memory:");
+    const raw = rawQuota(20, 2_000_000_000, { secondaryReserveUsed: 100,
+      ...(activeSecondary ? { limitId: "base_model_inference" } : {}) });
+    const secondary = raw.rateLimits.rateLimitsByLimitId!.base_model_inference!;
+    secondary.spendControlReached = true;
+    secondary.rateLimitReachedType = "spend_limit";
+    secondary.credits = { hasCredits: true, unlimited: false, balance: "7" };
+    const service = new QuotaGuardService(testConfig("/tmp/unused-output.sqlite"), store,
+      { readQuota: async () => raw }, { now: () => 1_000 });
+    try {
+      const full = await service.quotaStatusForRequest();
+      const brief = summaryQuota(full);
+      const active = full.pacing![full.activeBucket!.laneId]!;
+      assert.equal(brief.pacing?.confidence, active.confidence);
+      assert.equal(brief.pacing?.maxSegmentMinutes, active.maxSegmentMinutes);
+      if (!activeSecondary) {
+        assert.ok(brief.lanes.secondary && "spendControlReached" in brief.lanes.secondary);
+        assert.equal(brief.lanes.secondary.spendControlReached, true);
+        assert.equal(brief.lanes.secondary.rateLimitReachedType, "spend_limit");
+        const creditLane = structuredClone(full);
+        creditLane.lanes.secondary!.mayConsumeCredits = true;
+        creditLane.lanes.secondary!.quotaPath = "credits";
+        const creditSummary = summaryQuota(creditLane).lanes.secondary;
+        assert.ok(creditSummary && "credits" in creditSummary);
+        assert.deepEqual(creditSummary.credits, full.lanes.secondary!.bucket!.credits);
+      }
+    } finally { store.close(); }
+  }
+});
+
+test("summary preserves service admission actions across quota and failure scenarios", async () => {
+  const decisions = new Set<string>();
+  for (const scenario of ["allow", "caution", "defer", "split", "weekly", "secondary", "credits", "failure"]) {
+    const store = new StateStore(":memory:");
+    const raw = rawQuota(scenario === "caution" ? 87 : ["defer", "credits"].includes(scenario) ? 100 : 20,
+      2_000_000_000, { secondaryReserveUsed: 20,
+        ...(scenario === "credits" ? { credits: { hasCredits: true, unlimited: false, balance: "5" } } : {}) });
+    if (scenario === "weekly") raw.rateLimits.rateLimits!.primary = null;
+    const service = new QuotaGuardService(testConfig("/tmp/unused-output.sqlite"), store, {
+      readQuota: async () => { if (scenario === "failure") throw Error("fixture failure"); return raw; },
+    }, { now: () => 1_000 });
+    try {
+      const full = await service.jobPreflight({ jobId: scenario, taskId: "fixture", workspaceRoot: "/tmp",
+        jobClass: "small", description: scenario, laneId: scenario === "secondary" ? "secondary" : "primary",
+        ...(scenario === "split" ? { estimatedMinutes: 10 } : {}) });
+      const before = structuredClone(full);
+      const summary = summaryPreflight(full);
+      decisions.add(full.decision);
+      for (const [key, value] of Object.entries(full).filter(([key]) =>
+        !["quota", "reason", "requiredAction", "maxSegmentMinutes"].includes(key))) {
+        assert.deepEqual(Reflect.get(summary, key), value, `${scenario}:${key}`);
+      }
+      if (full.decision !== "allow" || full.canStartSegment === false) assert.equal(summary.reason, full.reason);
+      if (full.requiredAction) assert.equal(summary.requiredAction, full.requiredAction);
+      assert.ok(summary.maxSegmentMinutes! <= full.maxSegmentMinutes!);
+      assert.equal(summary.quota.stale, full.quota.stale);
+      assert.deepEqual(summary.quota.error, full.quota.error ?? undefined);
+      assert.deepEqual(full, before);
+      for (const output of [summary, summary.quota, summaryQuota(full.quota), compactQuota(full.quota)]) {
+        assert.equal(Object.hasOwn(output, "format"), false);
+      }
+    } finally { store.close(); }
+  }
+  assert.deepEqual([...decisions].sort(), ["allow", "caution", "defer"]);
+});
+
 test("compact quota keeps decisions, reset proofs, distinct limits and secondary quota", async () => {
   const store = new StateStore(":memory:");
   const config = testConfig("/tmp/unused-quota-output.sqlite");
@@ -46,7 +114,8 @@ test("compact quota keeps decisions, reset proofs, distinct limits and secondary
     const brief = summaryQuota(full);
     assert.deepEqual(brief.resetCredit.recommendation, full.resetCredit.recommendation);
     assert.deepEqual(brief.individualLimit, full.activeBucket!.individualLimit);
-    assert.deepEqual(brief.lanes.secondary?.weekly, {
+    assert.ok(brief.lanes.secondary && "weekly" in brief.lanes.secondary);
+    assert.deepEqual(brief.lanes.secondary.weekly, {
       remainingPercent: full.lanes.secondary!.bucket!.weekly!.remainingPercent,
       resetsAt: full.lanes.secondary!.bucket!.weekly!.resetsAt,
     });
