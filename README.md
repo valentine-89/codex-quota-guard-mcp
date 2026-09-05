@@ -1,4 +1,4 @@
-# Codex Quota Guard MCP 2.0.2
+# Codex Quota Guard MCP 2.0.3
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
@@ -59,7 +59,9 @@ Also delete the validated Guard-owned private state directory:
 node scripts/uninstall.mjs --purge
 ```
 
-Both modes preserve unrelated Codex configuration and write a configuration backup. The purge refuses paths outside the recognized Guard-owned directory.
+Both modes preserve unrelated Codex configuration and create no removal backup. `--purge` can also finish cleanup after the registration or config file has already been removed, using only the current profile's standard managed directory. Redirected and unrecognized purge paths are rejected.
+
+When asking Codex to uninstall, also have it review any Guard-owned resume automations, old data and configuration backups, and the installation folder. Those items require context and are not automatically deleted by this script. Close or disconnect existing Guard clients before removal.
 
 ## MCP use
 

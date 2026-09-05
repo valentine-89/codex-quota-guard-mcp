@@ -1,11 +1,11 @@
 // Disposable cross-platform install and concurrent-connector lifecycle acceptance.
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { parse } from "smol-toml";
+import { parse, stringify } from "smol-toml";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 import { managedHealth, readManagedSettings } from "../dist/managed.js";
@@ -39,7 +39,7 @@ try {
   const upgradedSettings = readManagedSettings(second.settingsPath);
   assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
   assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
-  assert.equal(upgradedSettings.releaseVersion, "2.0.2");
+  assert.equal(upgradedSettings.releaseVersion, "2.0.3");
   const third = runJson("scripts/install.mjs");
   assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
   const optedIn = runJson("scripts/install.mjs", ["--enable-auto-reset"]);
@@ -83,15 +83,46 @@ try {
     await new Promise(done => setTimeout(done, 100));
   }
   assert.equal(await managedHealth(settings).catch(() => null), null);
-  const uninstall = runJson("scripts/uninstall.mjs", ["--purge"]);
-  assert.equal(uninstall.removed, true); assert.equal(uninstall.purged, true);
+  const uninstall = runJson("scripts/uninstall.mjs");
+  assert.equal(uninstall.removed, true); assert.equal(uninstall.purged, false);
+  assert.equal(existsSync(first.settingsPath), true);
   const after = parse(readFileSync(configPath, "utf8"));
   assert.equal(after.mcp_servers.unrelated.command, "never-run");
   assert.equal(after.mcp_servers.codex_quota_guard, undefined);
+  const removedConfig = readFileSync(configPath, "utf8");
+  const cleanup = runJson("scripts/uninstall.mjs", ["--purge"]);
+  assert.equal(cleanup.removed, false); assert.equal(cleanup.purged, true);
   assert.equal(existsSync(first.settingsPath), false);
+  assert.equal(readFileSync(configPath, "utf8"), removedConfig);
+  const repeated = runJson("scripts/uninstall.mjs", ["--purge"]);
+  assert.equal(repeated.removed, false); assert.equal(repeated.purged, false);
+  assert.ok(!readdirSync(home).some(name => name.startsWith("codex-config-before-uninstall-")
+    || name.startsWith("config.toml.quota-guard-")));
+  // A missing config must not prevent recovery of this profile's managed state.
+  runJson("scripts/install.mjs");
+  unlinkSync(configPath);
+  assert.equal(runJson("scripts/uninstall.mjs", ["--purge"]).purged, true);
+  assert.equal(existsSync(configPath), false);
+  const outside = join(directory, "unrelated"); mkdirSync(outside);
+  const sentinel = join(outside, "keep.txt"); writeFileSync(sentinel, "keep");
+  const unsafe = stringify({ mcp_servers: { codex_quota_guard: {
+    env: { CODEX_QUOTA_GUARD_MANAGED_SETTINGS: join(outside, "runtime.json") },
+  } } });
+  writeFileSync(configPath, unsafe);
+  assert.throws(() => execFileSync(process.execPath, [resolve("scripts/uninstall.mjs"), "--purge"],
+    { env, windowsHide: true, stdio: "pipe" }));
+  assert.equal(readFileSync(configPath, "utf8"), unsafe);
+  assert.equal(readFileSync(sentinel, "utf8"), "keep");
+  // Reject an unsupported TOML layout rather than silently retaining the registration.
+  const inline = 'mcp_servers = { codex_quota_guard = { command = "fixture" }, unrelated = { command = "keep" } }\n';
+  writeFileSync(configPath, inline);
+  assert.throws(() => execFileSync(process.execPath, [resolve("scripts/uninstall.mjs")],
+    { env, windowsHide: true, stdio: "pipe" }));
+  assert.equal(readFileSync(configPath, "utf8"), inline);
   console.log(JSON.stringify({ upgradeRotatedEndpoint: true, sameVersionReinstallStable: true,
     unrelatedConfigPreserved: true, connectors: 6,
     singletonPid: pid, coreStoppedAfterDisconnect: true, uninstallPurgedOwnedState: true,
+    purgeAfterUnregister: true, repeatedPurgeSafe: true, missingConfigCleanup: true, uninstallNoBackup: true,
     platform: process.platform, arch: process.arch }));
 } finally {
   await Promise.all(clients.map(client => client.close().catch(() => undefined)));

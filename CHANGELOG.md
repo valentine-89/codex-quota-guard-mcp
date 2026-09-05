@@ -4,6 +4,17 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-09-05
+
+### Fixed
+
+- Uninstall validates preserved TOML and checks for concurrent edits before replacing configuration; temporary files are cleaned on failure.
+- Purge can finish after registration/config removal and rejects redirected managed directories before changing configuration.
+
+### Changed
+
+- Uninstall no longer creates a full Codex configuration backup. Context-dependent cleanup of automations, previous data and the installation folder remains with the user or Codex.
+
 ## [2.0.2] - 2026-09-05
 
 ### Fixed
