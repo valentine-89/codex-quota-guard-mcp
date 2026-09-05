@@ -45,7 +45,7 @@ try {
     console.log(JSON.stringify({ resume: { canResume: resume.canResume, automationIdsToCancel: resume.automationIdsToCancel } }));
     assert.equal(resume.canResume, true);
   }
-  const quota = await call("quota_status", { agentProtocol: "auto-reset-v1" });
+  const quota = await call("quota_status", { agentProtocol: "auto-reset-v1", detail: "full" });
   assert.equal(quota.stale, false); assert.equal(quota.refreshInProgress, false);
   if (values["expect-weekly"]) { assert.equal(quota.fiveHour, null); assert.equal(quota.profile.policyMode, "weekly_only"); }
   if (values["job-id"]) {

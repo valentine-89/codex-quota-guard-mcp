@@ -50,7 +50,7 @@ test("many HTTP clients share quota cache/admissions; disconnect does not close 
     for (const c of clients) assert.equal((await c.listTools()).tools.length, 8);
     // First quota read settles; subsequent concurrent requests must all use this cache.
     await clients[0]!.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
-    const snapshots = await Promise.all(clients.map(c => c.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } })));
+    const snapshots = await Promise.all(clients.map(c => c.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1", detail: "full" } })));
     assert.equal(f.reads(), 1);
     assert.ok(snapshots.every(s => !s.isError));
     const job = { agentProtocol: "auto-reset-v1", workspaceRoot: f.dir, taskId: "task", jobId: "idempotent", jobClass: "small", description: "shared HTTP" };

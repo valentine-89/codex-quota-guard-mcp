@@ -19,7 +19,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     readQuota: async () => { reads++; return rawQuota(25); },
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
-  const client = new Client({ name: "quota-guard-test", version: "2.0.0" }, {
+  const client = new Client({ name: "quota-guard-test", version: "3.0.0" }, {
     versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -28,7 +28,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "legacy");
-    assert.equal(client.getServerVersion()?.version, "2.0.0");
+    assert.equal(client.getServerVersion()?.version, "3.0.0");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.match(client.getInstructions() ?? "", /checkAgainBy/);
     assert.match(client.getInstructions() ?? "", /never interrupt an atomic or unsafe operation/);
@@ -51,7 +51,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     } });
     assert.equal(oldPreflight.isError, true);
     assert.match(JSON.stringify(oldPreflight.content), /AUTO_RESET_AGENT_REQUIRED/);
-    const response = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
+    const response = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1", detail: "compact" } });
     const structured = response.structuredContent as Record<string, unknown>;
     const fiveHour = structured.fiveHour as Record<string, unknown>;
     assert.equal(fiveHour.remainingPercent, 75);
@@ -70,6 +70,10 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     assert.ok(fullData.activeBucket);
     assert.ok(fullData.buckets);
     assert.equal(reads, 1, "detail selection must not refresh quota");
+    const summary = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
+    assert.equal((summary.structuredContent as Record<string, unknown>).format, "summary-v1");
+    assert.ok(Buffer.byteLength(JSON.stringify(summary.structuredContent)) <= 1_024);
+    assert.equal(reads, 1);
     const invalid = await client.callTool({ name: "quota_status", arguments: {
       agentProtocol: "auto-reset-v1", detail: "full", forceRefresh: true,
     } });
@@ -87,6 +91,12 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     const first = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
     const retry = (await client.callTool({ name: "job_preflight", arguments: job })).structuredContent as Record<string, unknown>;
     assert.equal(first.admissionRecorded, true);
+    assert.equal(first.format, "summary-v1");
+    assert.ok(Buffer.byteLength(JSON.stringify(first)) <= 1_024);
+    const fullJob = (await client.callTool({ name: "job_preflight", arguments: { ...job, detail: "full" } }))
+      .structuredContent as Record<string, unknown>;
+    assert.ok((fullJob.quota as Record<string, unknown>).activeBucket);
+    assert.equal(fullJob.admissionRecorded, false);
     assert.equal(retry.admissionRecorded, false);
     const adjustment = await client.callTool({ name: "quota_profile", arguments: { action: "adjust", deltaPercent: -3 } });
     assert.equal((adjustment.structuredContent as Record<string, unknown>).effectiveThresholdPercent, 7);

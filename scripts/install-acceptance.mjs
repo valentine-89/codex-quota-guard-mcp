@@ -39,7 +39,7 @@ try {
   const upgradedSettings = readManagedSettings(second.settingsPath);
   assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
   assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
-  assert.equal(upgradedSettings.releaseVersion, "2.0.0");
+  assert.equal(upgradedSettings.releaseVersion, "3.0.0");
   const third = runJson("scripts/install.mjs");
   assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
   const optedIn = runJson("scripts/install.mjs", ["--enable-auto-reset"]);

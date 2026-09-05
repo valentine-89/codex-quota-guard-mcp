@@ -1,8 +1,8 @@
-# Codex Quota Guard MCP 2.0.0
+# Codex Quota Guard MCP 3.0.0
 
 Quota Guard is a local MCP server that reads the current Codex ChatGPT quota through the official [`codex app-server`](https://learn.chatgpt.com/docs/app-server) interface, admits bounded work segments, and stores redacted checkpoints for resume. It never creates a login, accepts an API key, or reads Codex authentication files.
 
-`quota_status` now returns compact JSON by default. Use `detail="full"` for the original v1 data layout; both modes use the same quota read and policy. See [MCP API](docs/MCP_API.md).
+`quota_status` and `job_preflight` return short action summaries by default (about 1 KB in normal cases). Use `detail="full"` for diagnostics or `detail="compact"` for deduplicated quota data. All modes use the same quota read and policy. See [MCP API](docs/MCP_API.md).
 
 ## Security and lifecycle guarantees
 

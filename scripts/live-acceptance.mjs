@@ -87,8 +87,9 @@ try {
   const quota = await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
   assert.ok(!quota.isError, "quota_status returned an MCP tool error");
   const structuredQuota = quota.structuredContent;
-  assert.ok(structuredQuota?.profile && structuredQuota?.lanes && structuredQuota?.resetCredit, "v1 snapshot fields missing");
-  assert.ok(structuredQuota.pacing?.primary && structuredQuota.checkAgainBy, "pacing fields missing");
+  assert.equal(structuredQuota?.format, "summary-v1");
+  assert.ok(structuredQuota?.lanes && structuredQuota?.resetCredit, "summary fields missing");
+  assert.ok(structuredQuota.pacing && structuredQuota.checkAgainBy, "pacing fields missing");
   assert.equal(structuredQuota.stale, false, `Live quota unavailable: ${JSON.stringify(structuredQuota.error)}`);
   assert.equal(structuredQuota.refreshInProgress, false, "A shared refresh is in progress; use the normal next refresh deadline");
   const profile = await client.callTool({ name: "quota_profile", arguments: { action: "get" } });
@@ -97,7 +98,7 @@ try {
   process.stdout.write(`${JSON.stringify({
     accepted: true, server, transport: transportKind, isolatedStateDir,
     toolNames,
-    quota: values.summary ? { source: structuredQuota.source, stale: structuredQuota.stale,
+    quota: values.summary ? { bytes: Buffer.byteLength(JSON.stringify(structuredQuota)), stale: structuredQuota.stale,
       refreshInProgress: structuredQuota.refreshInProgress, planType: structuredQuota.planType,
       fetchedAt: structuredQuota.fetchedAt, checkAgainBy: structuredQuota.checkAgainBy, pacing: structuredQuota.pacing } : structuredQuota,
     laneRoles: lanes && typeof lanes === "object" ? Object.keys(lanes).sort() : [],

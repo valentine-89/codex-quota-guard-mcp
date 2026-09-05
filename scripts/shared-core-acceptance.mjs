@@ -80,10 +80,10 @@ if (process.argv.includes("--child")) {
       await client.connect(new StreamableHTTPClientTransport(new URL(env.CODEX_QUOTA_GUARD_HTTP_URL), { requestInit: { headers } }));
       assert.equal((await client.listTools()).tools.length, 8);
     }
-    const first = (await clients[0].callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } })).structuredContent;
+    const first = (await clients[0].callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1", detail: "full" } })).structuredContent;
     assert.equal(first.stale, false);
     for (const client of clients) {
-      const q = (await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } })).structuredContent;
+      const q = (await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1", detail: "full" } })).structuredContent;
       assert.equal(q.fetchedAt, first.fetchedAt);
     }
     await Promise.all(clients.map(c => c.close()));
@@ -112,7 +112,7 @@ if (process.argv.includes("--child")) {
       env.WSLENV = [...new Set([...(env.WSLENV ?? "").split(":").filter(Boolean).map(s => s.replace(/\/w$/, "")), ...forwarded])].join(":");
     }
     await connector.connect(new StdioClientTransport({ command, args, env, stderr: "pipe" }));
-    const q = (await connector.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } })).structuredContent;
+    const q = (await connector.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1", detail: "full" } })).structuredContent;
     assert.equal(q.fetchedAt, first.fetchedAt);
     await connector.close();
     console.log(JSON.stringify({ accepted: true, clients: 6, sameQuotaSnapshot: true,

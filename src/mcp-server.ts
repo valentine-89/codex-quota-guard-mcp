@@ -4,7 +4,7 @@ import type { QuotaGuardService } from "./service.js";
 import { GuardError, toGuardError } from "./errors.js";
 import { isHostWorkspaceRoot } from "./host-path.js";
 import type { CheckpointPayload } from "./types.js";
-import { compactQuota } from "./quota-output.js";
+import { compactQuota, summaryPreflight, summaryQuota } from "./quota-output.js";
 
 export const SERVER_INSTRUCTIONS = [
   "Use this server for substantial or long-running work, not for every command or small read.",
@@ -21,6 +21,8 @@ export const SERVER_INSTRUCTIONS = [
 ].join(" ");
 
 const agentProtocol = z.string().optional().describe("Required breaking contract marker: auto-reset-v1.");
+const detail = z.enum(["summary", "compact", "full"]).default("summary")
+  .describe("Summary returns action fields (~1KB normally); full returns diagnostics. Compact keeps the v2 status layout. Does not change freshness.");
 function requireAgentProtocol(value: string | undefined): asserts value is "auto-reset-v1" {
   if (value !== "auto-reset-v1") throw new GuardError("AUTO_RESET_AGENT_REQUIRED",
     "This Quota Guard release requires agentProtocol=auto-reset-v1 and an agent that supports the banked-reset workflow.");
@@ -73,26 +75,30 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "2.0.0" },
+    { name: "codex-quota-guard-mcp", version: "3.0.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
   server.registerTool("quota_status", {
     description: "Requires agentProtocol=auto-reset-v1. Read current shared Codex quota near the start of long work and by checkAgainBy at tool boundaries while active. If resetCredit.recommendation is present, call host consume_usage_reset with its exact idempotencyKey without asking again, then report the outcome in resetFollowup. The proof-bound follow-up may recheck after 3/5/10 seconds; there is no generic force refresh.",
     inputSchema: z.object({ agentProtocol, resetFollowup: resetFollowup.optional(),
-      detail: z.enum(["compact", "full"]).default("compact")
-        .describe("Compact deduplicates quota data; full returns the original snapshot for diagnostics. Does not change freshness."),
+      detail,
     }).strict(),
   }, async (input) => { try {
     requireAgentProtocol(input.agentProtocol);
     const snapshot = await service.quotaStatusForRequest(input.resetFollowup);
-    return result({ ...(input.detail === "full" ? snapshot : compactQuota(snapshot)), monitor: service.monitorStatus() });
+    const monitor = service.monitorStatus() as Record<string, unknown>;
+    return result({ ...(input.detail === "full" ? snapshot : input.detail === "compact" ? compactQuota(snapshot) : summaryQuota(snapshot)),
+      monitor: input.detail === "summary" ? { available: monitor.available,
+        ...(monitor.lastError ? { lastError: monitor.lastError } : {}),
+        ...(monitor.pendingRecords ? { pendingRecords: monitor.pendingRecords } : {}),
+      } : monitor });
   } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
     description: "Requires agentProtocol=auto-reset-v1. Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Honor canStartSegment=false by splitting and preflighting again; admission expires at validUntil. Save progress when checkpointRequired. Use primary for main work; secondary only when quota_status reports it.",
     inputSchema: z.object({
-      agentProtocol,
+      agentProtocol, detail,
       jobId: z.string().min(1).max(256).describe("Stable idempotency identifier for this part-job."),
       taskId, workspaceRoot, jobClass: z.enum(["small", "medium", "long"]),
       estimatedMinutes: z.number().min(0).max(10_080).optional().describe("Active Codex work duration for this segment, excluding detached GPU/process waiting time."), description: z.string().min(1).max(2_000), laneId,
@@ -101,13 +107,15 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   }, async (input) => {
     try {
       requireAgentProtocol(input.agentProtocol);
-      return result(await service.jobPreflight({
+      const preflight = await service.jobPreflight({
         agentProtocol: input.agentProtocol,
         jobId: input.jobId, taskId: input.taskId, workspaceRoot: input.workspaceRoot,
         jobClass: input.jobClass, description: input.description,
         ...(input.laneId ? { laneId: input.laneId } : {}), ...(input.sessionRole ? { sessionRole: input.sessionRole } : {}),
         ...(input.estimatedMinutes === undefined ? {} : { estimatedMinutes: input.estimatedMinutes }),
-      }));
+      });
+      return result(input.detail === "full" ? preflight : input.detail === "compact"
+        ? { ...preflight, quota: compactQuota(preflight.quota) } : summaryPreflight(preflight));
     } catch (error) { return failure(error); }
   });
 

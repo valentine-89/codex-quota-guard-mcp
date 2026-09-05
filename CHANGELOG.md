@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-05
+
+### Changed
+
+- **Breaking default output:** both `quota_status` and `job_preflight` now return action summaries, targeting about 1 KB for normal responses. Full preflight no longer leaks a repeated snapshot into the default response.
+- `detail="full"` preserves diagnostics and `detail="compact"` preserves deduplicated quota data. Safety fields, reset proofs and exceptional constraints remain intact; no changes to quota policy or refresh behavior.
+
 ## [2.0.0] - 2026-09-05
 
 ### Changed

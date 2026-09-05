@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactQuota } from "../src/quota-output.js";
+import { compactQuota, summaryPreflight, summaryQuota } from "../src/quota-output.js";
 import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
@@ -43,6 +43,49 @@ test("compact quota keeps decisions, reset proofs, distinct limits and secondary
     assert.equal(unavailable.stale, true);
     assert.equal(unavailable.error?.code, "SERVER_FAILED");
     assert.ok(unavailable.backoffUntil);
+    const brief = summaryQuota(full);
+    assert.deepEqual(brief.resetCredit.recommendation, full.resetCredit.recommendation);
+    assert.deepEqual(brief.individualLimit, full.activeBucket!.individualLimit);
+    assert.deepEqual(brief.lanes.secondary?.weekly, {
+      remainingPercent: full.lanes.secondary!.bucket!.weekly!.remainingPercent,
+      resetsAt: full.lanes.secondary!.bucket!.weekly!.resetsAt,
+    });
+    assert.equal(brief.longWindows?.[0]?.windowDurationMins, extra.windowDurationMins);
+    const failed = summaryQuota({ ...full, stale: true, backoffUntil: unavailable.backoffUntil, error: unavailable.error });
+    assert.equal(failed.error?.code, "SERVER_FAILED");
+    assert.equal(failed.backoffUntil, unavailable.backoffUntil);
+    assert.equal(failed.stale, true);
+    const credit = summaryQuota({ ...full, mayConsumeCredits: true, quotaPath: "credits",
+      activeBucket: { ...full.activeBucket!, spendControlReached: true }, rateLimitReachedType: "spend_limit" });
+    assert.equal(credit.mayConsumeCredits, true);
+    assert.deepEqual(credit.credits, full.activeBucket!.credits);
+    assert.equal(credit.spendControlReached, true);
+    assert.equal(credit.rateLimitReachedType, "spend_limit");
+  } finally { store.close(); }
+});
+
+test("weekly-only preflight summary fits 1KB even formatted, without losing action fields", async () => {
+  const store = new StateStore(":memory:");
+  const raw = rawQuota(0, 2_000_000_000, { weeklyUsed: 13 });
+  raw.rateLimits.rateLimits!.primary = null;
+  const service = new QuotaGuardService(testConfig("/tmp/unused-quota-output.sqlite"), store,
+    { readQuota: async () => raw }, { now: () => 1_000 });
+  try {
+    const full = await service.jobPreflight({ jobId: "fixture", taskId: "fixture", workspaceRoot: "/tmp",
+      jobClass: "small", description: "Synthetic weekly-only work" });
+    const before = structuredClone(full);
+    const summary = summaryPreflight(full);
+    assert.ok(Buffer.byteLength(JSON.stringify(summary, null, 2)) <= 1_024);
+    for (const field of ["decision", "canStartSegment", "validUntil", "checkAgainBy", "checkpointRequired",
+      "mayConsumeCredits", "quotaPath", "admissionRecorded", "laneId"] as const) assert.deepEqual(summary[field], full[field]);
+    assert.ok(summary.maxSegmentMinutes! <= full.maxSegmentMinutes!);
+    assert.equal(summary.quota.nextRefreshAt, full.quota.nextRefreshAt);
+    assert.deepEqual(full, before);
+    const blocked = summaryPreflight({ ...full, decision: "caution", canStartSegment: false,
+      reason: "Split required", requiredAction: "Save progress and split the segment" });
+    assert.equal(blocked.canStartSegment, false);
+    assert.equal(blocked.reason, "Split required");
+    assert.equal(blocked.requiredAction, "Save progress and split the segment");
   } finally { store.close(); }
 });
 
