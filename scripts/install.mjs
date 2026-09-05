@@ -21,6 +21,8 @@ const config = parse(original);
 const registration = config.mcp_servers?.codex_quota_guard ?? {};
 installationSettingsPath(home, registration.env?.CODEX_QUOTA_GUARD_MANAGED_SETTINGS);
 const env = { ...process.env, ...registration.env, CODEX_HOME: home,
+  CODEX_QUOTA_GUARD_SCHEDULER_SERVER: process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER
+    || registration.env?.CODEX_QUOTA_GUARD_SCHEDULER_SERVER || "",
   CODEX_QUOTA_GUARD_CONFIG: "", CODEX_QUOTA_GUARD_STATE_DIR: "",
   CODEX_QUOTA_GUARD_MANAGED_SETTINGS: "" };
 const provision = JSON.parse(execFileSync(process.execPath, [join(root, "scripts", "provision-managed.mjs")],
@@ -45,6 +47,9 @@ const forwarded = ["CODEX_APP_TOOLS_PIPE_PATH", "CODEX_MCP_NODE_PATH", "CODEX_TH
   "CODEX_QUOTA_GUARD_SCHEDULER_SERVER"];
 const newEnvironment = { ...registration.env, CODEX_HOME: home,
   CODEX_QUOTA_GUARD_NODE: settings.nodeExecutable, CODEX_QUOTA_GUARD_MANAGED_SETTINGS: provision.settingsPath };
+if (process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER && registration.env?.CODEX_QUOTA_GUARD_SCHEDULER_SERVER) {
+  newEnvironment.CODEX_QUOTA_GUARD_SCHEDULER_SERVER = process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER;
+}
 if (process.platform === "win32") {
   newEnvironment.WSLENV = [...new Set([...(newEnvironment.WSLENV ?? "").split(":").filter(Boolean),
     ...forwarded.map(key => `${key}/w`), "CODEX_QUOTA_GUARD_MANAGED_SETTINGS/w", "CODEX_QUOTA_GUARD_NODE/w", "CODEX_HOME/w"])].join(":");

@@ -13,7 +13,7 @@ export function createRuntime(config: GuardConfig) {
   const available = () => config.monitorEnabled !== false && rpc.available();
   const bridge = new DesktopSchedulerBridge(config.codexHome, rpc, available);
   const monitor = new QuotaMonitor(config.codexHome, store, service, bridge);
-  service.setMonitorCapability(available);
+  service.setMonitorCapability(available, () => config.monitorEnabled === false ? "MONITOR_DISABLED" : rpc.unavailableReason());
   service.setAutomationCapture(defer => available() ? bridge.capture(defer)?.serialized ?? null : null);
   return { service, monitor, bindDesktop: (pipePath: string, taskId: string) => config.monitorEnabled === false
     ? Promise.resolve(false) : rpc.bind(pipePath, taskId), async close() { await monitor.stop(); store.close(); } };

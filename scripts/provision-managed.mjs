@@ -1,7 +1,7 @@
 // Explicit local provisioning, not run merely by importing the MCP or installing npm packages.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, lstatSync, existsSync, writeFileSync, chmodSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { mkdirSync, lstatSync, statSync, existsSync, writeFileSync, chmodSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { dirname, join, resolve, isAbsolute } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,9 @@ const managedStateDir = dataRoot;
 const path = installationSettingsPath(config.codexHome);
 const directory = dirname(path);
 const releaseVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+const schedulerOverride = process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER || undefined;
+if (schedulerOverride && (!isAbsolute(schedulerOverride) || !existsSync(schedulerOverride)
+  || !statSync(schedulerOverride).isFile())) throw Error("Scheduler server must be an existing absolute file");
 const coreEntrypoint = join(root, "dist", "core.js");
 const allocatePort = async () => {
   const requestedPort = Number(process.env.CODEX_QUOTA_GUARD_HTTP_PORT ?? 0);
@@ -33,7 +36,23 @@ else {
 }
 if (existsSync(path)) {
   const previous = readManagedSettings(path);
-  if (previous.releaseVersion === releaseVersion && previous.nodeExecutable === process.execPath
+  let schedulerChanged = false;
+  if (schedulerOverride) {
+    const original = readFileSync(previous.guardConfig, "utf8");
+    const guard = JSON.parse(original);
+    if (!guard || Array.isArray(guard) || typeof guard !== "object") throw Error("Invalid Guard configuration");
+    if (guard.schedulerServerPath !== schedulerOverride) {
+      const temporaryGuard = `${previous.guardConfig}.${randomUUID()}.tmp`;
+      try {
+        writeFileSync(temporaryGuard, JSON.stringify({ ...guard, schedulerServerPath: schedulerOverride }), { flag: "wx", mode: 0o600 });
+        if (process.platform !== "win32") chmodSync(temporaryGuard, 0o600);
+        if (readFileSync(previous.guardConfig, "utf8") !== original) throw Error("Guard configuration changed during setup");
+        renameSync(temporaryGuard, previous.guardConfig);
+        schedulerChanged = true;
+      } finally { if (existsSync(temporaryGuard)) rmSync(temporaryGuard, { force: true }); }
+    }
+  }
+  if (!schedulerChanged && previous.releaseVersion === releaseVersion && previous.nodeExecutable === process.execPath
     && previous.coreEntrypoint === coreEntrypoint) {
     console.log(JSON.stringify({ provisioned: false, existing: true, settingsPath: path }));
   } else {

@@ -48,17 +48,21 @@ export class QuotaGuardService {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly key: string;
   private monitorCapability: () => boolean = () => false;
+  private monitorReason: () => string | null = () => "SCHEDULER_NOT_BOUND";
   private captureAutomation: ((defer: StoredDefer) => string | null) | undefined;
   private readonly runtimeMode = "shared-http" as const;
   private liveClientCount: () => number = () => 0;
 
   setLiveClientCount(read: () => number): void { this.liveClientCount = read; }
 
-  setMonitorCapability(capability: () => boolean): void { this.monitorCapability = capability; }
+  setMonitorCapability(capability: () => boolean, reason?: () => string | null): void {
+    this.monitorCapability = capability;
+    this.monitorReason = reason ?? (() => capability() ? null : "SCHEDULER_NOT_BOUND");
+  }
   setAutomationCapture(capture: (defer: StoredDefer) => string | null): void { this.captureAutomation = capture; }
   monitorStatus(): object {
     const state = this.store.monitor.status(this.key);
-    return { available: this.monitorCapability(), intervalMs: MONITOR_INTERVAL_MS,
+    return { available: this.monitorCapability(), unavailableReason: this.monitorReason(), intervalMs: MONITOR_INTERVAL_MS,
       pendingRecords: this.store.monitor.list(this.key).length,
       nextPollAt: iso(state?.nextPollAt ?? null), lastPollAt: iso(state?.lastPollAt ?? null),
       lastError: state?.lastError ?? null, requiresLiveMcpProcess: true,

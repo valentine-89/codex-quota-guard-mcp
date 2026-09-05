@@ -89,7 +89,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
     const snapshot = await service.quotaStatusForRequest(input.resetFollowup);
     const monitor = service.monitorStatus() as Record<string, unknown>;
     return result({ ...(input.detail === "full" ? snapshot : input.detail === "compact" ? compactQuota(snapshot) : summaryQuota(snapshot)),
-      monitor: input.detail === "summary" ? { available: monitor.available,
+      monitor: input.detail === "summary" ? { available: monitor.available, unavailableReason: monitor.unavailableReason,
         ...(monitor.lastError ? { lastError: monitor.lastError } : {}),
         ...(monitor.pendingRecords ? { pendingRecords: monitor.pendingRecords } : {}),
       } : monitor });

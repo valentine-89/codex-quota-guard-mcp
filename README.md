@@ -47,7 +47,7 @@ Guard configuration and state live inside the installed tool at `data/core-<prof
 
 For installations using the old external state directory, close Guard clients and run the **old installation's** `node scripts/uninstall.mjs --purge` before updating its code. Then install this release from the intended installation directory. This is a clean reinstall: old learning, checkpoints, defers, and reset records are deleted. There is no storage migration or fallback. Reapply `--enable-auto-reset` if desired. Review any previously scheduled Guard resume automations separately; deleting local state does not cancel them.
 
-On a Windows machine that also uses WSL, run the installer with Windows Node from `pwsh`; both Windows and WSL tasks then use the Windows-hosted core and the same Windows profile. Native Linux and native macOS each use their own local Node, Codex login and state. The early-recovery monitor accepts a verified Windows named pipe or POSIX Unix-domain socket when Codex supplies the scheduler capability. Do not share credential or state directories across hosts.
+On a Windows machine that also uses WSL, run the installer with Windows Node from `pwsh`; both Windows and WSL tasks then use the Windows-hosted core and the same Windows profile. Native Linux and native macOS each use their own local Node, Codex login and state. See [scheduler diagnostics](docs/TROUBLESHOOTING.md#monitor-unavailable-on-windows-wsl-linux-or-macos) for `monitor.unavailableReason`, capability requirements, and updating the saved server path. The early-recovery monitor accepts a verified Windows named pipe or POSIX Unix-domain socket when Codex supplies the scheduler capability. Do not share credential or state directories across hosts.
 
 ## Uninstall
 

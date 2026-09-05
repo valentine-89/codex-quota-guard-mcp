@@ -1,4 +1,5 @@
 // Read-only capability probe. Never calls a tool, starts a turn, or edits an automation.
+import { schedulerCapabilityReason } from "../dist/scheduler-capability.js";
 import { isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
@@ -30,8 +31,9 @@ if (!values.server || !isAbsolute(values.server)) {
     await client.connect(transport, { timeout: 10_000 });
     const { tools } = await client.listTools({}, { timeout: 10_000 });
     const scheduler = tools.find((tool) => tool.name === "automation_update");
-    const ok = client.getServerVersion()?.name === "codex-app-tools" && scheduler !== undefined;
-    report({ ok, server: client.getServerVersion(), toolCount: tools.length,
+    const reason = schedulerCapabilityReason(client.getServerVersion()?.name, tools);
+    const ok = reason === null;
+    report({ ok, reason, contextVerified: false, server: client.getServerVersion(), toolCount: tools.length,
       schedulerAdvertised: scheduler !== undefined,
       schedulerInputSchema: scheduler?.inputSchema,
       mutationVerified: false,

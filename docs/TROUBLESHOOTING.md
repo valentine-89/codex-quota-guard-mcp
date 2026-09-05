@@ -28,9 +28,30 @@ Run with PowerShell 7 as the normal user. Do not elevate. The installer changes 
 
 Use the Windows-side installation and Windows-hosted launcher for Windows Codex tasks. Do not mix Linux and Windows settings/SQLite for one profile.
 
-## Monitor unavailable on Windows, WSL, or Linux
+## Monitor unavailable on Windows, WSL, Linux, or macOS
 
-`quota_status.monitor.available=false` means the current MCP process did not complete a verified scheduler binding. The host must provide `CODEX_APP_TOOLS_PIPE_PATH`, `CODEX_THREAD_ID`, and an absolute trusted `CODEX_QUOTA_GUARD_SCHEDULER_SERVER`. Windows uses a `\\.\pipe\...` endpoint; Linux/macOS use an absolute Unix-domain socket path. Rerun installation after setting a supported scheduler-server path, then restart or reconnect Codex. Quota and checkpoint tools continue safely when this optional capability is absent.
+`quota_status.monitor.available=false` means no usable verified scheduler binding is active. `monitor.unavailableReason` is returned in every detail level (null when available):
+
+| Reason | Action |
+| --- | --- |
+| `MONITOR_DISABLED` | Check `monitorEnabled` in the Guard configuration. |
+| `SCHEDULER_SERVER_UNCONFIGURED` / `SCHEDULER_SERVER_INVALID` | Configure an existing absolute path to the trusted installed OpenAI `server.mjs`. |
+| `SCHEDULER_NOT_BOUND` | Check that the current task inherits `CODEX_THREAD_ID` and `CODEX_APP_TOOLS_PIPE_PATH`, then reconnect. |
+| `SCHEDULER_ENDPOINT_INVALID` / `SCHEDULER_TASK_INVALID` | The inherited endpoint or task ID failed validation. |
+| `SCHEDULER_TOOL_MISSING` | The connected server does not advertise `automation_update`. Check the selected server and Desktop installation. |
+| `SCHEDULER_SCHEMA_UNSUPPORTED` | The advertised tool lacks the required heartbeat/update/delete contract. |
+| `SCHEDULER_IDENTITY_UNSUPPORTED` | The connected server does not identify as `codex-app-tools`. |
+| `SCHEDULER_CONTEXT_REJECTED` | Same-task `list_threads` verification failed. |
+| `SCHEDULER_DISCOVERY_FAILED` | Server launch, MCP negotiation, or discovery failed. |
+| `SCHEDULER_CLOSED` | The scheduler runtime has stopped. |
+
+Windows uses a named pipe; Linux/macOS use an absolute Unix-domain socket path. Having the environment variables alone is insufficient. Compatibility is checked by capability, not the `codex-app-tools` version number; no minimum Desktop version is established here.
+
+Set `CODEX_QUOTA_GUARD_SCHEDULER_SERVER` to the existing absolute trusted server file and rerun `node scripts/install.mjs`. An explicit nonempty environment value updates `schedulerServerPath` in an existing installation while preserving other settings and state. Omitting it preserves the saved path. A changed path rotates the private runtime endpoint for new connectors; reconnect/restart Codex to use it. Installation does not terminate an active core.
+
+After building, run `node scripts/scheduler-bridge-doctor.mjs --server "/absolute/path/to/server.mjs"` inside the task environment. Doctor and runtime share the same identity/tool/schema check. Doctor does not call tools, verify task context, or mutate automations: `ok=true` confirms discovery only, not monitor or auto-resume readiness.
+
+Quota/checkpoint tools remain usable without scheduling. `monitor.available` describes early-recovery monitoring, while scheduled resume requires the host to create and attach a heartbeat. `canSchedule=true` only validates reset timing; it does not prove the host has a scheduler. If the host lacks that tool, report the saved checkpoint and manual resume time. No alternate auto-resume mechanism is provided.
 
 ## Safe diagnostics
 

@@ -19,6 +19,7 @@ const configPath = join(home, "config.toml");
 writeFileSync(configPath, `# preserved\nmodel = "fixture-only"\n[mcp_servers.unrelated]\ncommand = "never-run"\n`);
 const env = { ...process.env, CODEX_HOME: home, CODEX_QUOTA_GUARD_CONFIG: "",
   CODEX_QUOTA_GUARD_STATE_DIR: "", CODEX_QUOTA_GUARD_MANAGED_SETTINGS: "",
+  CODEX_QUOTA_GUARD_SCHEDULER_SERVER: "",
   CODEX_APP_TOOLS_PIPE_PATH: "", CODEX_THREAD_ID: "" };
 let settings;
 const clients = [];
@@ -52,12 +53,26 @@ try {
   const optedIn = runJson("scripts/install.mjs", ["--enable-auto-reset"]);
   assert.equal(optedIn.automaticWeeklyResetEnabled, true);
   assert.equal(JSON.parse(readFileSync(upgradedSettings.guardConfig, "utf8")).automaticWeeklyReset.enabled, true);
+  const beforeScheduler = JSON.parse(readFileSync(upgradedSettings.guardConfig, "utf8"));
+  const schedulerFixture = join(directory, "scheduler.mjs");
+  writeFileSync(schedulerFixture, "// Never executed by installation acceptance");
+  env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER = schedulerFixture;
+  runJson("scripts/install.mjs");
+  const afterScheduler = JSON.parse(readFileSync(upgradedSettings.guardConfig, "utf8"));
+  assert.deepEqual(afterScheduler, { ...beforeScheduler, schedulerServerPath: schedulerFixture });
+  const schedulerSettings = readManagedSettings(third.settingsPath);
+  assert.notEqual(schedulerSettings.installationId, upgradedSettings.installationId);
+  runJson("scripts/install.mjs");
+  assert.equal(readManagedSettings(third.settingsPath).installationId, schedulerSettings.installationId);
+  env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER = "";
+  runJson("scripts/install.mjs");
+  assert.deepEqual(JSON.parse(readFileSync(upgradedSettings.guardConfig, "utf8")), afterScheduler);
   const text = readFileSync(configPath, "utf8"), config = parse(text);
   assert.ok(text.includes("# preserved"));
   assert.equal(config.mcp_servers.unrelated.command, "never-run");
   assert.ok(config.mcp_servers.codex_quota_guard.args.at(-1).endsWith(`${join("dist", "connector.js")}`));
   assert.equal(config.mcp_servers.codex_quota_guard.default_tools_approval_mode, "approve");
-  settings = upgradedSettings;
+  settings = schedulerSettings;
   assert.ok(!text.includes(settings.token));
   const registration = config.mcp_servers.codex_quota_guard;
   assert.ok(registration.env_vars.includes("CODEX_APP_TOOLS_PIPE_PATH"));

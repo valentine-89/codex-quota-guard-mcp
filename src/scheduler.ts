@@ -1,3 +1,4 @@
+import { schedulerCapabilityReason, schedulerFailureReason } from "./scheduler-capability.js";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
@@ -47,14 +48,10 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
     try {
       await client.connect(transport);
       const inventory = await client.listTools({}, { timeout: 15_000 });
-      const schema = inventory.tools.find(tool => tool.name === "automation_update")?.inputSchema;
-      // Require the observed update contract, do not guess a fallback transport/schema.
-      const encoded = JSON.stringify(schema ?? {});
-      if (!["heartbeat", "update", "delete", "targetThreadId", "rrule"].every(field => encoded.includes(`"${field}"`))) {
-        throw new Error("SCHEDULER_SCHEMA_UNSUPPORTED");
-      }
+      const reason = schedulerCapabilityReason(client.getServerVersion()?.name, inventory.tools);
+      if (reason) throw new Error(reason);
       this.client = client;
-    } catch (cause) { await transport.close(); this.transport = undefined; throw new Error("SCHEDULER_UNAVAILABLE", { cause }); }
+    } catch (cause) { await transport.close(); this.transport = undefined; throw new Error(schedulerFailureReason(cause), { cause }); }
     finally { clearTimeout(timeout); }
   }
   async call(args: Record<string, unknown>, taskId: string): Promise<boolean> {
@@ -80,8 +77,10 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   async verifyContext(taskId: string): Promise<void> {
     await this.ready();
     if (this.client!.getServerVersion()?.name !== "codex-app-tools") throw new Error("SCHEDULER_IDENTITY_UNSUPPORTED");
-    const result = await this.client!.callTool({ name: "list_threads", arguments: { limit: 1 },
-      _meta: { threadId: taskId } }, { timeout: 15_000 });
+    let result;
+    try { result = await this.client!.callTool({ name: "list_threads", arguments: { limit: 1 },
+      _meta: { threadId: taskId } }, { timeout: 15_000 }); }
+    catch { throw new Error("SCHEDULER_CONTEXT_REJECTED"); }
     if (result.isError) throw new Error("SCHEDULER_CONTEXT_REJECTED");
   }
 }
@@ -92,12 +91,19 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
   private verifiedPipe: string | undefined;
   private tail: Promise<unknown> = Promise.resolve();
   private stopped = false;
+  private bindingReason = "SCHEDULER_NOT_BOUND";
   constructor(private readonly serverPath: string,
     private readonly factory: (environment: NodeJS.ProcessEnv) => ContextSchedulerRpc = env => new DesktopSchedulerRpc(serverPath, env),
     private readonly hostPlatform: NodeJS.Platform = process.platform) {
     this.current = factory(process.env);
   }
   available(): boolean { return !!this.verifiedPipe && isAbsolute(this.serverPath) && existsSync(this.serverPath) && !this.stopped; }
+  unavailableReason(): string | null {
+    if (this.stopped) return "SCHEDULER_CLOSED";
+    if (!this.serverPath) return "SCHEDULER_SERVER_UNCONFIGURED";
+    if (!isAbsolute(this.serverPath) || !existsSync(this.serverPath)) return "SCHEDULER_SERVER_INVALID";
+    return this.available() ? null : this.bindingReason;
+  }
   private serialize<T>(action: () => Promise<T>): Promise<T> {
     const result = this.tail.then(action); this.tail = result.catch(() => undefined); return result;
   }
@@ -107,14 +113,18 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
   }
   bind(pipePath: string, taskId: string): Promise<boolean> {
     // Accept only a local Windows named pipe or POSIX Unix-domain socket inherited from Codex.
-    if (!validSchedulerEndpoint(pipePath, this.hostPlatform)
-      || !/^[a-f0-9-]{36}$/i.test(taskId)) return Promise.resolve(false);
+    if (!validSchedulerEndpoint(pipePath, this.hostPlatform)) {
+      this.bindingReason = "SCHEDULER_ENDPOINT_INVALID"; return Promise.resolve(false);
+    }
+    if (!/^[a-f0-9-]{36}$/i.test(taskId)) {
+      this.bindingReason = "SCHEDULER_TASK_INVALID"; return Promise.resolve(false);
+    }
     return this.serialize(async () => {
       if (this.stopped) return false;
       if (pipePath === this.verifiedPipe) return true;
       const candidate = this.factory({ ...process.env, CODEX_APP_TOOLS_PIPE_PATH: pipePath });
       try { await candidate.verifyContext(taskId); }
-      catch { await candidate.close(); return false; }
+      catch (error) { this.bindingReason = schedulerFailureReason(error); await candidate.close(); return false; }
       await this.current.close(); this.current = candidate; this.verifiedPipe = pipePath;
       return true;
     });
