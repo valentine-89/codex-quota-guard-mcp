@@ -11,9 +11,7 @@ export function schedulerFromResources(roots: string[]): string | undefined {
 }
 
 /** Bounded host discovery. Never enumerate login files or persist session pipes. */
-export function discoverSchedulerServer(saved?: string): string {
-  const explicit = process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER;
-  if (explicit) return explicit;
+export function discoverSchedulerServer(): string {
   const resources = process.env.CODEX_ELECTRON_RESOURCES_PATH;
   if (resources) {
     const found = schedulerFromResources([resources]);
@@ -30,5 +28,5 @@ export function discoverSchedulerServer(saved?: string): string {
   } else if (process.platform === "darwin") {
     roots = ["/Applications/Codex.app/Contents/Resources", "/Applications/ChatGPT.app/Contents/Resources"];
   }
-  return schedulerFromResources(roots) ?? saved ?? "";
+  return schedulerFromResources(roots) ?? "";
 }

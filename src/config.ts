@@ -10,7 +10,6 @@ const configSchema = z.object({
   codexHome: z.string().min(1).optional(),
   codexCommand: z.string().min(1).optional(),
   monitorEnabled: z.boolean().default(true),
-  schedulerServerPath: z.string().min(1).optional(),
   planDefaults: z.object({
     freeGo: z.number().min(1).max(50).default(20),
     standard: z.number().min(1).max(50).default(10),
@@ -66,7 +65,6 @@ export interface GuardConfig {
   codexHome: string;
   codexCommand: string;
   monitorEnabled?: boolean;
-  schedulerServerPath?: string | undefined;
   planDefaults: { freeGo: number; standard: number; pro: number; unknown: number };
   sampleWindow: number;
   minSamples: number;

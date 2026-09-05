@@ -76,7 +76,7 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "2.1.0" },
+    { name: "codex-quota-guard-mcp", version: "2.2.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 

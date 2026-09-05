@@ -21,8 +21,6 @@ const config = parse(original);
 const registration = config.mcp_servers?.codex_quota_guard ?? {};
 installationSettingsPath(home, registration.env?.CODEX_QUOTA_GUARD_MANAGED_SETTINGS);
 const env = { ...process.env, ...registration.env, CODEX_HOME: home,
-  CODEX_QUOTA_GUARD_SCHEDULER_SERVER: process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER
-    || registration.env?.CODEX_QUOTA_GUARD_SCHEDULER_SERVER || "",
   CODEX_QUOTA_GUARD_CONFIG: "", CODEX_QUOTA_GUARD_STATE_DIR: "",
   CODEX_QUOTA_GUARD_MANAGED_SETTINGS: "" };
 const provision = JSON.parse(execFileSync(process.execPath, [join(root, "scripts", "provision-managed.mjs")],
@@ -44,20 +42,19 @@ if (enableAutoReset) {
   } finally { if (existsSync(temporaryGuard)) rmSync(temporaryGuard, { force: true }); }
 }
 const forwarded = ["CODEX_APP_TOOLS_PIPE_PATH", "CODEX_MCP_NODE_PATH", "CODEX_THREAD_ID",
-  "CODEX_QUOTA_GUARD_SCHEDULER_SERVER", "CODEX_ELECTRON_RESOURCES_PATH"];
+  "CODEX_ELECTRON_RESOURCES_PATH"];
 const newEnvironment = { ...registration.env, CODEX_HOME: home,
   CODEX_QUOTA_GUARD_NODE: settings.nodeExecutable, CODEX_QUOTA_GUARD_MANAGED_SETTINGS: provision.settingsPath };
-if (process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER && registration.env?.CODEX_QUOTA_GUARD_SCHEDULER_SERVER) {
-  newEnvironment.CODEX_QUOTA_GUARD_SCHEDULER_SERVER = process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER;
-}
+delete newEnvironment.CODEX_QUOTA_GUARD_SCHEDULER_SERVER;
+delete newEnvironment.CODEX_ELECTRON_RESOURCES_PATH;
 if (process.platform === "win32") {
-  newEnvironment.WSLENV = [...new Set([...(newEnvironment.WSLENV ?? "").split(":").filter(Boolean),
+  newEnvironment.WSLENV = [...new Set([...(newEnvironment.WSLENV ?? "").split(":").filter(value => value && !value.startsWith("CODEX_QUOTA_GUARD_SCHEDULER_SERVER")),
     ...forwarded.map(key => `${key}/w`), "CODEX_QUOTA_GUARD_MANAGED_SETTINGS/w", "CODEX_QUOTA_GUARD_NODE/w", "CODEX_HOME/w"])].join(":");
 }
 const next = { ...registration, command: settings.nodeExecutable,
   args: [join(root, "dist", "connector.js")], startup_timeout_sec: 60,
   default_tools_approval_mode: "approve",
-  env_vars: [...new Set([...(registration.env_vars ?? []), ...forwarded])], env: newEnvironment };
+  env_vars: [...new Set([...(registration.env_vars ?? []).filter(value => value !== "CODEX_QUOTA_GUARD_SCHEDULER_SERVER"), ...forwarded])], env: newEnvironment };
 for (const key of ["url", "bearer_token_env_var", "http_headers", "env_http_headers"]) delete next[key];
 const replacement = stringify({ mcp_servers: { codex_quota_guard: next } });
 const lines = original.split(/(?<=\n)/);

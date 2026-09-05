@@ -37,7 +37,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
-    const client = new Client({ name: "quota-guard-monitor", version: "2.1.0" }, {
+    const client = new Client({ name: "quota-guard-monitor", version: "2.2.0" }, {
       versionNegotiation: { mode: "legacy" },
     });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
@@ -90,7 +90,11 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
     private readonly factory: (environment: NodeJS.ProcessEnv) => ContextSchedulerRpc = env => new DesktopSchedulerRpc(serverPath, env),
     private readonly hostPlatform: NodeJS.Platform = process.platform,
     private readonly resolveServer?: () => string) {
-    this.current = factory(process.env);
+    if (resolveServer) {
+      try { this.serverPath = resolveServer(); }
+      catch { this.bindingReason = "SCHEDULER_DISCOVERY_AMBIGUOUS"; }
+    }
+    this.current = resolveServer ? new DesktopSchedulerRpc(this.serverPath, process.env) : factory(process.env);
   }
   available(): boolean { return !!this.verifiedPipe && isAbsolute(this.serverPath) && existsSync(this.serverPath) && !this.stopped; }
   unavailableReason(): string | null {

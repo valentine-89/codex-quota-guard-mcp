@@ -83,7 +83,7 @@ async function main() {
     })().finally(() => { preparing = undefined; });
     return preparing;
   };
-  await prepare();
+  await prepare(process.env.CODEX_THREAD_ID, true);
   const url = new URL(process.env.CODEX_QUOTA_GUARD_HTTP_URL ?? "");
   token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== "/mcp"

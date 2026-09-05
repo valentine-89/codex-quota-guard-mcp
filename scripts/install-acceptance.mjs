@@ -47,7 +47,7 @@ try {
   const upgradedSettings = readManagedSettings(second.settingsPath);
   assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
   assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
-  assert.equal(upgradedSettings.releaseVersion, "2.1.0");
+  assert.equal(upgradedSettings.releaseVersion, "2.2.0");
   const third = runJson("scripts/install.mjs");
   assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
   const optedIn = runJson("scripts/install.mjs", ["--enable-auto-reset"]);
@@ -57,9 +57,10 @@ try {
   const schedulerFixture = join(directory, "scheduler.mjs");
   writeFileSync(schedulerFixture, "// Never executed by installation acceptance");
   env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER = schedulerFixture;
+  writeFileSync(upgradedSettings.guardConfig, JSON.stringify({ ...beforeScheduler, schedulerServerPath: schedulerFixture }));
   runJson("scripts/install.mjs");
   const afterScheduler = JSON.parse(readFileSync(upgradedSettings.guardConfig, "utf8"));
-  assert.deepEqual(afterScheduler, { ...beforeScheduler, schedulerServerPath: schedulerFixture });
+  assert.deepEqual(afterScheduler, beforeScheduler);
   const schedulerSettings = readManagedSettings(third.settingsPath);
   assert.notEqual(schedulerSettings.installationId, upgradedSettings.installationId);
   runJson("scripts/install.mjs");
@@ -76,10 +77,10 @@ try {
   assert.ok(!text.includes(settings.token));
   const registration = config.mcp_servers.codex_quota_guard;
   assert.ok(registration.env_vars.includes("CODEX_APP_TOOLS_PIPE_PATH"));
-  assert.ok(registration.env_vars.includes("CODEX_QUOTA_GUARD_SCHEDULER_SERVER"));
+  assert.ok(!registration.env_vars.includes("CODEX_QUOTA_GUARD_SCHEDULER_SERVER"));
   if (process.platform === "win32") {
     assert.ok(registration.env.WSLENV.split(":").includes("CODEX_APP_TOOLS_PIPE_PATH/w"));
-    assert.ok(registration.env.WSLENV.split(":").includes("CODEX_QUOTA_GUARD_SCHEDULER_SERVER/w"));
+    assert.ok(!registration.env.WSLENV.split(":").includes("CODEX_QUOTA_GUARD_SCHEDULER_SERVER/w"));
   }
   const connect = async () => {
     const client = new Client({ name: "install-acceptance", version: "1" }, {

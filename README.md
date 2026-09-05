@@ -1,6 +1,6 @@
-# Codex Quota Guard MCP 2.1.0
+# Codex Quota Guard MCP 2.2.0
 
-Scheduler connection is automatic for discoverable Desktop installations. Guard resolves current Desktop resources on context binding (Windows registered package or macOS application resources), validates the stable MCP handshake, advertised automation capability and task context. `CODEX_QUOTA_GUARD_SCHEDULER_SERVER` explicitly overrides discovery. Multiple candidates require an explicit selection. No pipe or account credential is saved.
+Scheduler paths are runtime-only. Guard discovers current Desktop resources at core startup and revalidates on context binding. No saved server path or legacy server environment override is used. The host may provide current CODEX_ELECTRON_RESOURCES_PATH in memory; ambiguous discovery fails closed. Stable MCP capability and task context must pass before monitor availability.
 
 `defer_until_reset.earlyRecovery` reports whether early wake is ready. If false, Codex must resolve the diagnostic and recheck before claiming early recovery; the original timed heartbeat can still be created. Existing defers without an original automation baseline are not automatically adopted: resume manually and create a new defer if still necessary. Reconnect Desktop once to load an updated Guard connector; scheduler rediscovery does not reinstall or stop the shared core.
 

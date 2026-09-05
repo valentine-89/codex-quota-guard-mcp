@@ -4,6 +4,17 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { schedulerFromResources } from "../src/scheduler-discovery.js";
+import { RenewableSchedulerRpc } from "../src/scheduler.js";
+
+test("scheduler resolves on startup and repeats discovery on binding", async () => {
+  let calls = 0;
+  const rpc = new RenewableSchedulerRpc("stale-saved-path", undefined, "win32", () => { calls++; return ""; });
+  assert.equal(calls, 1);
+  assert.equal(rpc.available(), false);
+  assert.equal(await rpc.bind("\\\\.\\pipe\\runtime-test", "01a06e49-2c2a-78c1-888d-d363531a0eb2"), false);
+  assert.equal(calls, 2);
+  await rpc.close();
+});
 
 test("discovery handles changed application resources without choosing ambiguous installs", () => {
   const dir = mkdtempSync(join(tmpdir(), "scheduler-discovery-"));

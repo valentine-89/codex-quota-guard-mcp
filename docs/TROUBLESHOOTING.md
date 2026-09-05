@@ -35,7 +35,7 @@ Use the Windows-side installation and Windows-hosted launcher for Windows Codex 
 | Reason | Action |
 | --- | --- |
 | `MONITOR_DISABLED` | Check `monitorEnabled` in the Guard configuration. |
-| `SCHEDULER_SERVER_UNCONFIGURED` / `SCHEDULER_SERVER_INVALID` | Configure an existing absolute path to the trusted installed OpenAI `server.mjs`. |
+| `SCHEDULER_SERVER_UNCONFIGURED` / `SCHEDULER_SERVER_INVALID` | Verify the current Desktop installation or host-provided resource directory; reconnect with fresh runtime context. |
 | `SCHEDULER_NOT_BOUND` | Check that the current task inherits `CODEX_THREAD_ID` and `CODEX_APP_TOOLS_PIPE_PATH`, then reconnect. |
 | `SCHEDULER_ENDPOINT_INVALID` / `SCHEDULER_TASK_INVALID` | The inherited endpoint or task ID failed validation. |
 | `SCHEDULER_TOOL_MISSING` | The connected server does not advertise `automation_update`. Check the selected server and Desktop installation. |
@@ -47,11 +47,11 @@ Use the Windows-side installation and Windows-hosted launcher for Windows Codex 
 
 Windows uses a named pipe; Linux/macOS use an absolute Unix-domain socket path. Having the environment variables alone is insufficient. Compatibility is checked by capability, not the `codex-app-tools` version number; no minimum Desktop version is established here.
 
-Set `CODEX_QUOTA_GUARD_SCHEDULER_SERVER` to the existing absolute trusted server file and rerun `node scripts/install.mjs`. An explicit nonempty environment value updates `schedulerServerPath` in an existing installation while preserving other settings and state. Omitting it preserves the saved path. A changed path rotates the private runtime endpoint for new connectors; reconnect/restart Codex to use it. Installation does not terminate an active core.
+Installation removes the retired schedulerServerPath setting and CODEX_QUOTA_GUARD_SCHEDULER_SERVER registration. No scheduler path is persisted. A custom host must supply its current CODEX_ELECTRON_RESOURCES_PATH in its process environment on every launch; do not pin a versioned path in config.toml.
 
 After building, run `node scripts/scheduler-bridge-doctor.mjs` inside the task environment for automatic discovery, or pass `--server "/absolute/path/to/server.mjs"` to inspect a particular installation. Doctor and runtime share the same stable handshake and identity/tool/schema check. Doctor does not call tools, verify task context, or mutate automations: `ok=true` confirms discovery only, not monitor or auto-resume readiness.
 
-Runtime automatically prefers current Desktop resources over the saved path; an explicit environment override takes priority. `SCHEDULER_DISCOVERY_AMBIGUOUS` requires selecting the intended installation explicitly. Normal rediscovery/context renewal does not rotate the managed core endpoint or require reinstalling Guard. On failure, Codex must resolve the reported reason and verify `monitor.available=true` before promising early recovery. Old waiting records without a captured baseline require manual resume; repeated attach cannot adopt user edits.
+Runtime resolves current Desktop resources on startup and binding renewal. Ambiguous discovery fails closed. Normal rediscovery does not rotate the core endpoint or require reinstalling Guard. Recheck monitor.available after repairing the host context. Existing baseline-less records are not silently adopted.
 
 Quota/checkpoint tools remain usable without scheduling. `monitor.available` describes early-recovery monitoring, while scheduled resume requires the host to create and attach a heartbeat. `canSchedule=true` only validates reset timing; it does not prove the host has a scheduler. If the host lacks that tool, report the saved checkpoint and manual resume time. No alternate auto-resume mechanism is provided.
 

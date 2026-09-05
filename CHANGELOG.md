@@ -2,7 +2,9 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
-## [Unreleased]
+## [2.2.0] - 2026-09-06
+
+- Scheduler paths are runtime-only: resolve on startup and context renewal; remove saved paths and the legacy server override during installation. No stored-path fallback.
 
 - Automatically discover current Desktop scheduler resources; validate stable MCP handshake, capability and task context.
 - Recheck bindings after host changes; verify persisted schedules after card responses.

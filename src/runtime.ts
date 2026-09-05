@@ -9,9 +9,7 @@ import { discoverSchedulerServer } from "./scheduler-discovery.js";
 export function createRuntime(config: GuardConfig) {
   const store = new StateStore(config.stateFile);
   const service = new QuotaGuardService(config, store, new CodexAppServerClient(config));
-  const serverPath = config.schedulerServerPath ?? process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER;
-  const rpc = new RenewableSchedulerRpc(serverPath ?? "", undefined, process.platform,
-    () => discoverSchedulerServer(config.schedulerServerPath));
+  const rpc = new RenewableSchedulerRpc("", undefined, process.platform, discoverSchedulerServer);
   const available = () => config.monitorEnabled !== false && rpc.available();
   const bridge = new DesktopSchedulerBridge(config.codexHome, rpc, available);
   const monitor = new QuotaMonitor(config.codexHome, store, service, bridge);

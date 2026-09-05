@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { parse } from "smol-toml";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { discoverSchedulerServer } from "../dist/scheduler-discovery.js";
 
 if (process.argv.includes("--child")) {
   await import("../dist/core.js");
@@ -17,10 +18,10 @@ if (process.argv.includes("--child")) {
     if (message === "stop") { process.emit("SIGTERM"); return; }
     if (message !== "scheduler-probe") return;
     const client = new Client({ name: "shared-core-read-only-probe", version: "1" }, {
-      versionNegotiation: { mode: { pin: "2026-07-28" } },
+      versionNegotiation: { mode: "legacy" },
     });
     const transport = new StdioClientTransport({ command: process.execPath,
-      args: [process.env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER], env: process.env, stderr: "pipe" });
+      args: [discoverSchedulerServer()], env: process.env, stderr: "pipe" });
     transport.stderr?.resume();
     try {
       await client.connect(transport, { timeout: 10_000 });
@@ -44,7 +45,7 @@ if (process.argv.includes("--child")) {
   const env = { ...process.env, ...registration.env };
   // Only inherit an existing capability; never print or persist its value.
   for (const key of registration.env_vars ?? []) if (typeof key === "string" && process.env[key]) env[key] = process.env[key];
-  assert.ok(env.CODEX_APP_TOOLS_PIPE_PATH && env.CODEX_QUOTA_GUARD_SCHEDULER_SERVER, "desktop capability missing");
+  assert.ok(env.CODEX_APP_TOOLS_PIPE_PATH && discoverSchedulerServer(), "desktop capability missing");
   const dir = mkdtempSync(join(tmpdir(), "quota-shared-live-"));
   const config = env.CODEX_QUOTA_GUARD_CONFIG ? JSON.parse(readFileSync(env.CODEX_QUOTA_GUARD_CONFIG, "utf8")) : {};
   config.stateDir = dir;
