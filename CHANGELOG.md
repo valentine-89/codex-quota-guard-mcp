@@ -4,7 +4,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
-## [3.0.0] - 2026-09-05
+## [2.0.1] - 2026-09-05
 
 ### Changed
 

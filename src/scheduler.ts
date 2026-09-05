@@ -36,7 +36,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
-    const client = new Client({ name: "quota-guard-monitor", version: "3.0.0" }, {
+    const client = new Client({ name: "quota-guard-monitor", version: "2.0.1" }, {
       versionNegotiation: { mode: { pin: "2026-07-28" } },
     });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
