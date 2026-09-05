@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-05
+
+### Changed
+
+- **Breaking output layout:** `quota_status` defaults to compact quota data without repeated active buckets, windows and profiles. `detail="full"` preserves the v1 snapshot layout.
+- Minified MCP JSON text reduces formatting overhead. Quota policy, cache, pacing, reset proofs and other tools' data layouts are unchanged.
+
 ## [1.1.0] - 2026-09-05
 
 ### Added

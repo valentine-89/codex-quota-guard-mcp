@@ -14,7 +14,7 @@ if (!values.server || !isAbsolute(values.server)) {
   report({ ok: false, reason: "Desktop app-tools capability is absent from this process environment." });
   process.exitCode = 2;
 } else {
-  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "1.1.0" }, {
+  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "2.0.0" }, {
     versionNegotiation: { mode: { pin: "2026-07-28" } },
   });
   // Use the shipped server; do not reimplement its pipe protocol or peer authorization.

@@ -1,4 +1,8 @@
-# MCP API 1.1.0
+# MCP API 2.0.0
+
+`quota_status` defaults to `detail="compact"` (`format="compact-v1"`). Use `detail="full"` for the original v1 snapshot; this option does not trigger a refresh. Both text and structured output contain the same data, with minified JSON text.
+
+Compact output keeps active windows, policy and safety fields at the root. `limits` holds active credits and individual limits. A lane with `quotaRef="root"` uses that data; a missing lane profile inherits root `profile`. Distinct lane buckets and profiles remain inline. `longWindows` contains only windows beyond `weekly`; extra buckets are in `otherBuckets`. Unavailable lanes retain `available=false` and their reason, without redundant pacing. Reset recommendations, keys, follow-ups, errors and deadlines are unchanged. Other tools retain their existing data layout.
 
 Quota Guard exposes eight tools: `quota_status`, `job_preflight`, `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare`.
 

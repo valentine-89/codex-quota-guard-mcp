@@ -14,11 +14,12 @@ import { rawQuota, testConfig } from "./helpers.js";
 test("stable MCP discovery exposes instructions, adaptive profile, and defer lifecycle tools", async () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-mcp-"));
   const store = new StateStore(join(directory, "state.sqlite"));
+  let reads = 0;
   const service = new QuotaGuardService(testConfig(join(directory, "state.sqlite")), store, {
-    readQuota: async () => rawQuota(25),
+    readQuota: async () => { reads++; return rawQuota(25); },
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
-  const client = new Client({ name: "quota-guard-test", version: "1.1.0" }, {
+  const client = new Client({ name: "quota-guard-test", version: "2.0.0" }, {
     versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -27,7 +28,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "legacy");
-    assert.equal(client.getServerVersion()?.version, "1.1.0");
+    assert.equal(client.getServerVersion()?.version, "2.0.0");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.match(client.getInstructions() ?? "", /checkAgainBy/);
     assert.match(client.getInstructions() ?? "", /never interrupt an atomic or unsafe operation/);
@@ -56,6 +57,24 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     assert.equal(fiveHour.remainingPercent, 75);
     assert.equal(structured.source, "codex-app-server");
     assert.equal((structured.profile as Record<string, unknown>).baselineRemainingPercent, 10);
+    assert.equal(structured.format, "compact-v1");
+    assert.equal(structured.activeBucket, undefined);
+    const text = response.content.find(item => item.type === "text");
+    assert.ok(text?.type === "text");
+    assert.deepEqual(JSON.parse(text.text), structured);
+    assert.equal(text.text.includes("\n"), false);
+    const full = await client.callTool({ name: "quota_status", arguments: {
+      agentProtocol: "auto-reset-v1", detail: "full",
+    } });
+    const fullData = full.structuredContent as Record<string, unknown>;
+    assert.ok(fullData.activeBucket);
+    assert.ok(fullData.buckets);
+    assert.equal(reads, 1, "detail selection must not refresh quota");
+    const invalid = await client.callTool({ name: "quota_status", arguments: {
+      agentProtocol: "auto-reset-v1", detail: "full", forceRefresh: true,
+    } });
+    assert.equal(invalid.isError, true);
+    assert.equal(reads, 1);
     const missingId = await client.callTool({ name: "job_preflight", arguments: {
       agentProtocol: "auto-reset-v1", workspaceRoot: directory, taskId: "task", jobClass: "small", description: "missing job ID",
     } });

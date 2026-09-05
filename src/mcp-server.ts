@@ -4,6 +4,7 @@ import type { QuotaGuardService } from "./service.js";
 import { GuardError, toGuardError } from "./errors.js";
 import { isHostWorkspaceRoot } from "./host-path.js";
 import type { CheckpointPayload } from "./types.js";
+import { compactQuota } from "./quota-output.js";
 
 export const SERVER_INSTRUCTIONS = [
   "Use this server for substantial or long-running work, not for every command or small read.",
@@ -61,7 +62,7 @@ function payloadFrom(input: z.infer<z.ZodObject<typeof checkpointFields>>): Chec
 }
 
 function result(value: object) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], structuredContent: value as Record<string, unknown> };
+  return { content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: value as Record<string, unknown> };
 }
 function failure(error: unknown) {
   const guardError = toGuardError(error);
@@ -72,16 +73,21 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "1.1.0" },
+    { name: "codex-quota-guard-mcp", version: "2.0.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
   server.registerTool("quota_status", {
     description: "Requires agentProtocol=auto-reset-v1. Read current shared Codex quota near the start of long work and by checkAgainBy at tool boundaries while active. If resetCredit.recommendation is present, call host consume_usage_reset with its exact idempotencyKey without asking again, then report the outcome in resetFollowup. The proof-bound follow-up may recheck after 3/5/10 seconds; there is no generic force refresh.",
-    inputSchema: z.object({ agentProtocol, resetFollowup: resetFollowup.optional() }).strict(),
-  }, async (input) => { try { requireAgentProtocol(input.agentProtocol); return result({
-    ...await service.quotaStatusForRequest(input.resetFollowup), monitor: service.monitorStatus(),
-  }); } catch (error) { return failure(error); } });
+    inputSchema: z.object({ agentProtocol, resetFollowup: resetFollowup.optional(),
+      detail: z.enum(["compact", "full"]).default("compact")
+        .describe("Compact deduplicates quota data; full returns the original snapshot for diagnostics. Does not change freshness."),
+    }).strict(),
+  }, async (input) => { try {
+    requireAgentProtocol(input.agentProtocol);
+    const snapshot = await service.quotaStatusForRequest(input.resetFollowup);
+    return result({ ...(input.detail === "full" ? snapshot : compactQuota(snapshot)), monitor: service.monitorStatus() });
+  } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
     description: "Requires agentProtocol=auto-reset-v1. Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Honor canStartSegment=false by splitting and preflighting again; admission expires at validUntil. Save progress when checkpointRequired. Use primary for main work; secondary only when quota_status reports it.",
