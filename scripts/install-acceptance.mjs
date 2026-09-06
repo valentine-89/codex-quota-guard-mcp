@@ -1,6 +1,6 @@
 // Disposable cross-platform install and concurrent-connector lifecycle acceptance.
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync, cpSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync, cpSync, symlinkSync, rmSync, realpathSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -35,7 +35,9 @@ const runJson = (script, args = []) => {
 };
 try {
   const first = runJson("scripts/install.mjs");
-  assert.equal(dirname(dirname(first.settingsPath)), join(fixtureRoot, "data"));
+  // macOS tmpdir() can use /var while the installer resolves it to /private/var.
+  // Canonicalize only the fixture root so redirected data still fails validation.
+  assert.equal(dirname(dirname(first.settingsPath)), join(realpathSync(fixtureRoot), "data"));
   assert.equal(existsSync(join(home, "quota-guard")), false);
   assert.equal(first.backupPath, undefined);
   assert.ok(!readdirSync(dirname(first.settingsPath)).some(name => name.startsWith("codex-config-before-")));
