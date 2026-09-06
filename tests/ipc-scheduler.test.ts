@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, toNamespacedPath } from "node:path";
 import { IpcClient, type IpcSnapshot } from "../src/ipc-client.js";
 import { IpcScheduler } from "../src/ipc-scheduler.js";
 import { StateStore, profileKey } from "../src/store.js";
@@ -10,7 +10,7 @@ import { QuotaGuardService } from "../src/service.js";
 import { taskContext } from "../src/task-context.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
-async function fixture() {
+async function fixture(namespaced = false) {
   const dir = mkdtempSync(join(tmpdir(), "guard-ipc-")), config = testConfig(join(dir, "state.sqlite"));
   const store = new StateStore(config.stateFile), key = profileKey(config.codexHome);
   let now = 1_000, raw = rawQuota(100, 20_000), live = true, idle = true, fail = false, reads = 0, writes = 0;
@@ -19,7 +19,10 @@ async function fixture() {
   const service = new QuotaGuardService(config, store, { readQuota: async () => { reads++; return raw; } }, { now: () => now });
   class FakeClient extends IpcClient {
     override async connect() {}
-    override async inspect(taskId: string): Promise<IpcSnapshot> { return { taskId, cwd: dir, rolloutPath: join(config.codexHome, "sessions", "test.jsonl"), owner: "owner", idle }; }
+    override async inspect(taskId: string): Promise<IpcSnapshot> {
+      const path = (value: string) => namespaced ? toNamespacedPath(value) : value;
+      return { taskId, cwd: path(dir), rolloutPath: path(join(config.codexHome, "sessions", "test.jsonl")), owner: "owner", idle };
+    }
     override async send(snapshot: IpcSnapshot, cwd: string, prompt: string, authorize: () => boolean): Promise<string> {
       assert.equal(cwd, dir); assert.match(prompt, /resume_prepare/); assert.match(prompt, /automation/);
       assert.equal(snapshot.idle, true); beforeClaim(); if (!authorize()) throw Error("cancelled");
@@ -39,6 +42,13 @@ async function fixture() {
     beforeClaim: (fn: () => void) => { beforeClaim = fn; },
     close: async () => { await scheduler.stop(); store.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
+
+test("extended Windows paths bind the same profile and workspace", { skip: process.platform !== "win32" }, async () => {
+  const f = await fixture(true); try {
+    assert.equal(f.deferred.scheduling.mechanism, "ipc");
+    f.recover(); f.advance(); await f.scheduler.tick(); assert.equal(f.writes(), 1);
+  } finally { await f.close(); }
+});
 
 test("IPC defer schedules without Desktop automation and early resume is proof-bound", async () => {
   const f = await fixture(); try {

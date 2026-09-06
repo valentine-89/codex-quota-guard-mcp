@@ -24,6 +24,6 @@ Schema 6 retains existing state and adds ipc_wakes. Older Guard builds cannot op
 
 ## Release verification
 
-On 2026-09-06, `npm run check` passed 155 tests and the isolated Windows installation acceptance passed. A live same-task extension test waited for idle, dispatched once through this adapter, received the matching turn acknowledgement, and displayed the new input in the task. The temporary test was bound to the existing VS Code app-server lifetime and did not modify quota or defer state.
+On 2026-09-06, `npm run check` passed 156 tests and the isolated Windows installation acceptance passed. A live same-task extension test waited for idle, dispatched once through this adapter, received the matching turn acknowledgement, and displayed the new input in the task. The temporary test was bound to the existing VS Code app-server lifetime and did not modify quota or defer state. Regression coverage includes Windows extended-length paths returned by live snapshots.
 
 Separate Desktop acceptance on 26.901.6511.0 verified capability/task context, created an owned heartbeat, captured its definition, advanced its schedule, and cancelled it with removal confirmed. This verifies the scheduler bridge; natural quota recovery remains covered by regression tests, not a fabricated live quota event. Verify the newly installed registered runtime after reconnect before declaring deployment complete.

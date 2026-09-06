@@ -6,6 +6,11 @@ type Message = Record<string, unknown>;
 const object = (value: unknown): Message => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Message : {};
 export const IPC_ENDPOINT = "\\\\.\\pipe\\codex-ipc";
 export interface IpcSnapshot { owner: string; taskId: string; cwd: string; rolloutPath: string; idle: boolean }
+export function ipcPath(value: string): string {
+  // Windows snapshots may use the extended-length spelling of the same local path.
+  const ordinary = value.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\(?=[a-z]:\\)/i, "");
+  return resolve(ordinary).toLowerCase();
+}
 
 /** Versioned local follower protocol observed in OpenAI extension 26.901.22334.
  * No router creation, alternate endpoints, auth reads, or CLI resume. */
@@ -106,7 +111,7 @@ export class IpcClient {
   }
   async send(snapshot: IpcSnapshot, cwd: string, prompt: string, authorize: () => boolean): Promise<string> {
     if (await this.owner(snapshot.taskId) !== snapshot.owner || !snapshot.idle
-      || resolve(snapshot.cwd).toLowerCase() !== resolve(cwd).toLowerCase()) throw new Error("IPC_TASK_NOT_IDLE_OR_CHANGED");
+      || ipcPath(snapshot.cwd) !== ipcPath(cwd)) throw new Error("IPC_TASK_NOT_IDLE_OR_CHANGED");
     if (!authorize()) throw new Error("IPC_DISPATCH_CANCELLED");
     const response = await this.request("thread-follower-start-turn", { conversationId: snapshot.taskId,
       turnStart: { request: { threadId: snapshot.taskId, input: [{ type: "text", text: prompt, text_elements: [] }] },

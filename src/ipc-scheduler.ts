@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { IpcClient } from "./ipc-client.js";
+import { IpcClient, ipcPath } from "./ipc-client.js";
 import type { GuardConfig } from "./config.js";
 import type { QuotaGuardService } from "./service.js";
 import { profileKey, type StateStore } from "./store.js";
@@ -29,8 +29,8 @@ export class IpcScheduler {
   setLiveClients(live: (id: string) => boolean): void { this.live = live; }
   private prune(): void { for (const [id, b] of this.bindings) if (!this.live(b.context.clientId)) { this.bindings.delete(id); this.reasons.delete(id); } }
   private correctProfile(rolloutPath: string): boolean {
-    const root = resolve(this.config.codexHome).toLowerCase();
-    const path = resolve(rolloutPath).toLowerCase();
+    const root = ipcPath(this.config.codexHome);
+    const path = ipcPath(rolloutPath);
     return ["sessions", "archived_sessions"].some(folder => path.startsWith(resolve(root, folder).toLowerCase() + (this.platform === "win32" && process.platform === "win32" ? "\\" : "/")));
   }
   async bind(context: TaskContext): Promise<void> {
@@ -64,7 +64,7 @@ export class IpcScheduler {
     if (!context) return { mechanism: "desktop", state: "waiting", reason: null };
     if (status.mechanism !== "ipc") return status;
     const binding = this.bindings.get(defer.taskId);
-    if (!context || context.taskId !== defer.taskId || !binding || resolve(binding.cwd).toLowerCase() !== resolve(defer.workspaceRoot).toLowerCase()) {
+    if (!context || context.taskId !== defer.taskId || !binding || ipcPath(binding.cwd) !== ipcPath(defer.workspaceRoot)) {
       return { mechanism: "unavailable", state: "waiting", reason: "IPC_WORKSPACE_OR_TASK_MISMATCH" };
     }
     if (!canSchedule || !defer.resumeAt) return { ...status, reason: "RESET_NOT_SCHEDULABLE" };
@@ -98,7 +98,7 @@ export class IpcScheduler {
       const client = this.factory();
       try {
         await client.connect(); const snapshot = await client.inspect(defer.taskId);
-        if (!snapshot.idle || !this.correctProfile(snapshot.rolloutPath) || resolve(snapshot.cwd).toLowerCase() !== resolve(defer.workspaceRoot).toLowerCase()) {
+        if (!snapshot.idle || !this.correctProfile(snapshot.rolloutPath) || ipcPath(snapshot.cwd) !== ipcPath(defer.workspaceRoot)) {
           this.store.ipc.postpone(this.key, defer.id, this.now() + 15_000, "IPC_TASK_NOT_IDLE_OR_CHANGED"); continue;
         }
         if (!batchQuota) {
