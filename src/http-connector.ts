@@ -91,6 +91,9 @@ async function main() {
     throw new Error("INVALID_LOCAL_ENDPOINT");
   }
   leaseTarget.url = new URL("/client-lease", url);
+  // The open connector is the live host connection, even before the first tool call.
+  // Pending recovery must survive Desktop restart without requiring another chat.
+  if (!await updateLease("register")) throw new Error("CLIENT_LEASE_REGISTER_FAILED");
   const leaseTimer = setInterval(() => {
     if (!leaseId) return;
     void updateLease("renew").then(async renewed => {
@@ -137,8 +140,7 @@ async function main() {
       const params = message.params as { arguments?: { taskId?: string } } | undefined;
       const capabilityCall = method === "tools/call";
       await prepare(params?.arguments?.taskId ?? process.env.CODEX_THREAD_ID, capabilityCall, capabilityCall);
-      // Discovery and the stable handshake must not count as a live Codex task
-      // or delay shared-core shutdown. Acquire a lease only on a capability call.
+      // Restore an expired lease before forwarding a capability call.
       if (method !== "server/discover" && method !== "initialize"
         && method !== "notifications/initialized" && method !== "tools/list"
         && !leaseId && !await updateLease("register")) {

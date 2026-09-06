@@ -210,10 +210,13 @@ test("wire-only stdio connector uses existing HTTP service and exits on EOF", { 
     const transport = new StdioClientTransport({ command: process.execPath,
       args: ["--import", "tsx", resolve("src/http-connector.ts")], env, stderr: "pipe" });
     await client.connect(transport);
-    assert.equal(f.liveClients(), 0, "stable handshake must not acquire a live-client lease");
+    assert.equal(f.liveClients(), 1, "startup must acquire a live-client lease before the stable handshake");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.equal((await client.listTools()).tools.length, 8);
-    assert.equal(f.liveClients(), 0, "tool discovery must not acquire a live-client lease");
+    assert.equal(f.liveClients(), 1, "an idle connected host must keep recovery monitoring alive before any tool call");
+    await delay(5_500);
+    assert.equal(f.liveClients(), 1, "idle handshake-only connector must outlive the core idle shutdown window");
+    assert.equal(f.reads(), 0, "keeping the host lease does not itself read quota");
     await client.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
     assert.equal(f.liveClients(), 1);
     await client.close();
@@ -239,9 +242,12 @@ test("stdio connector retains modern discovery and reports missing settings only
     await modern.connect(new StdioClientTransport({ command: process.execPath,
       args: ["--import", "tsx", resolve("src/http-connector.ts")], env, stderr: "pipe" }));
     assert.equal((await modern.listTools()).tools.length, 8);
-    assert.equal(f.liveClients(), 0);
+    // Modern negotiation may retain a discovery connector alongside its session.
+    const connected = f.liveClients();
+    assert.ok(connected >= 1);
+    assert.equal(f.reads(), 0);
     await modern.callTool({ name: "quota_status", arguments: { agentProtocol: "auto-reset-v1" } });
-    assert.equal(f.liveClients(), 1);
+    assert.equal(f.liveClients(), connected, "tool calls must reuse startup leases");
   } finally { await modern.close(); await f.close(); }
 
   const child = spawn(process.execPath, ["--import", "tsx", resolve("src/http-connector.ts")], {

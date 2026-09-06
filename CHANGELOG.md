@@ -2,6 +2,10 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
+## [Unreleased]
+
+- Register connector leases at startup so reopening Codex keeps the shared core and pending early-recovery monitor alive before any tool call. Disconnect cleanup and lease expiry still bound the core lifetime.
+
 ## [2.3.0] - 2026-09-06
 
 - Add Windows VS Code quota wake scheduling through the existing task owner's IPC connection.

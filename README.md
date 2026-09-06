@@ -14,7 +14,7 @@ Quota Guard is a local MCP server that reads the current Codex ChatGPT quota thr
 
 - Only the current stable `account.type === "chatgpt"` session is supported. API-key, Bedrock, signed-out, external-token and unstable identities return `CHATGPT_LOGIN_REQUIRED`; no quota percentage is read or cached for them.
 - One authenticated `127.0.0.1` core owns SQLite and quota refresh for a Codex profile. Every Codex task gets only a small stdio connector.
-- Connectors renew an in-memory lease every 20 seconds. A clean disconnect is observed immediately; a crashed connector expires after 60 seconds.
+- Connectors register an in-memory lease at startup and renew it every 20 seconds, including while the host is idle. This lets pending recovery monitoring restart with Codex before any chat or tool call. A clean disconnect is observed immediately; a crashed connector expires after 60 seconds.
 - The core exits about five seconds after the last connector disappears and no request or scheduler dispatch is active. Pending defers do not keep it alive.
 - The five-minute early-recovery poll runs only when a connector is alive, a defer is waiting, and the current Codex task supplied a valid scheduler capability.
 - There is no Scheduled Task, service, daemon, `launchd`, `systemd`, `wscript`, elevation request, Codex PID scan, browser login, or OAuth fallback.
@@ -93,7 +93,7 @@ The MCP publishes server-wide `instructions` containing the automatic reset sequ
 
 For a schedulable defer, the Guard returns a complete same-task one-shot `automationRequest` with the fixed `Continue the work.` prompt. Pass it unchanged to the host automation tool and attach only the returned ID; no automation inventory scan, scheduler-documentation lookup, or model-authored prompt is required.
 
-The registered STDIO connector supports the stable MCP `initialize`/`initialized` lifecycle used by Codex by default. The authenticated loopback core also retains MCP `2026-07-28` support for internal clients. Capability discovery does not read quota, bind the desktop scheduler, or acquire a live-client lease; those actions remain on demand when a tool capability is called.
+The registered STDIO connector supports the stable MCP `initialize`/`initialized` lifecycle used by Codex by default. The authenticated loopback core also retains MCP `2026-07-28` support for internal clients. Connector startup ensures the core, binds inherited Desktop context when available, and registers a live-client lease. Discovery itself does not read quota. Background quota polling still requires pending recovery and a verified scheduler.
 
 `quota_status.monitor` reports `runtimeMode="shared-http"`, `requiresLiveClientConnection=true`, and `lifecycleMode="codex-bound"`.
 
