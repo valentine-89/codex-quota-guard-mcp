@@ -5,19 +5,32 @@ import { isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { IpcClient } from "../dist/ipc-client.js";
 
 const { values } = parseArgs({ options: { server: { type: "string" } } });
+const explicitServer = values.server !== undefined;
 values.server ??= discoverSchedulerServer();
 const report = (result) => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 
-if (!values.server || !isAbsolute(values.server)) {
+if (process.platform === "win32" && !process.env.CODEX_APP_TOOLS_PIPE_PATH && process.env.CODEX_THREAD_ID && !explicitServer) {
+  const ipc = new IpcClient();
+  try {
+    await ipc.connect();
+    const state = await ipc.inspect(process.env.CODEX_THREAD_ID);
+    report({ ok: true, mechanism: "ipc", contextVerified: true, idle: state.idle,
+      protocol: "extension-26.901.22334", mutationVerified: false, monitorEnabled: false });
+  } catch {
+    report({ ok: false, mechanism: "ipc", reason: "IPC owner or state unavailable; no input was sent." });
+    process.exitCode = 2;
+  } finally { ipc.close(); }
+} else if (!values.server || !isAbsolute(values.server)) {
   report({ ok: false, reason: "Provide --server with the absolute installed codex-app-tools server.mjs path." });
   process.exitCode = 2;
 } else if (!process.env.CODEX_APP_TOOLS_PIPE_PATH) {
   report({ ok: false, reason: "Desktop app-tools capability is absent from this process environment." });
   process.exitCode = 2;
 } else {
-  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "2.2.0" }, {
+  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "2.3.0" }, {
     versionNegotiation: { mode: "legacy" },
   });
   // Use the shipped server; do not reimplement its pipe protocol or peer authorization.

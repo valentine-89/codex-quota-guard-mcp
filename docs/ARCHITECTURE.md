@@ -9,3 +9,7 @@ The core has three kinds of temporary work: authenticated requests, scheduler di
 Quota refresh starts a short-lived `codex app-server --stdio` child, performs `account/read(refreshToken:false)`, validates stable ChatGPT identity, reads rate limits, re-reads identity, and terminates the child. SQLite provides single-flight refresh, cache, backoff, admission, checkpoint and defer ownership.
 
 There is no direct full-runtime stdio deployment, supervisor, Scheduled Task, service, daemon, launchd/systemd unit, or Codex PID discovery.
+
+## Extension IPC adapter
+
+The core also owns an unreferenced IPC scheduler timer. Authenticated connector headers carry inherited task identity and a live client lease into request-local context. Tool arguments cannot bind another task. Windows extension contexts use the versioned follower IPC adapter; Desktop contexts retain their host scheduler. Additive schema 6 stores IPC wake ownership and pre-send uncertainty. No existing Desktop defer is converted. See [IPC resume](IPC_RESUME.md).

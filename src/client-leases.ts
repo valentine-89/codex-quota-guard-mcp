@@ -28,6 +28,7 @@ export class ClientLeaseRegistry {
   }
 
   unregister(id: string): boolean { return this.clients.delete(id); }
+  has(id: string): boolean { this.expire(); return this.clients.has(id); }
 
   expire(): number {
     const now = this.now();

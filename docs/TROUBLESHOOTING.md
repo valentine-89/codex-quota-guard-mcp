@@ -58,3 +58,9 @@ Quota/checkpoint tools remain usable without scheduling. `monitor.available` des
 ## Safe diagnostics
 
 Run `npm run check`, `npm run acceptance:install`, `npm audit`, and inspect only authenticated health/settings paths. Never paste runtime bearer values, auth files, full prompts, responses, or live checkpoints into an issue.
+
+## VS Code IPC
+
+Run the installed scheduler-bridge-doctor from the task environment. With no Desktop capability, Windows discovery inspects the current IPC owner and snapshot. `ok=true` proves read-only discovery, not successful dispatch. IPC requires the exact task, profile rollout path, workspace, live lease, and idle owner; unknown/mismatched state remains waiting. Protocol 26.901.22334 is internal and not guaranteed by OpenAI. No guessed alternate protocol is attempted.
+
+A wake with an attempt but no confirmed turn is `uncertain`; manually resume that defer rather than retry injection. A confirmed turn remains scheduled until `resume_prepare` claims its defer. After closing the app, reopen the same task and call a Guard tool to restore its live lease; saved pending schedules can then be reconsidered. Reconnect clients to load 2.3.0. Never kill another task or remove a thread writer lock.

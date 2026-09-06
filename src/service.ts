@@ -18,6 +18,8 @@ import {
 import { accountFingerprint, profileKey } from "./store.js";
 import { pacingFor, samplePacing } from "./pacing.js";
 import { MONITOR_INTERVAL_MS } from "./monitor-state.js";
+import type { IpcScheduler, SchedulingStatus } from "./ipc-scheduler.js";
+import { taskContext } from "./task-context.js";
 import type { StateStore } from "./store.js";
 import type {
   AppServerQuotaResult,
@@ -52,6 +54,8 @@ export class QuotaGuardService {
   private captureAutomation: ((defer: StoredDefer) => string | null) | undefined;
   private readonly runtimeMode = "shared-http" as const;
   private liveClientCount: () => number = () => 0;
+  private ipcScheduler: IpcScheduler | undefined;
+  setIpcScheduler(scheduler: IpcScheduler): void { this.ipcScheduler = scheduler; }
 
   setLiveClientCount(read: () => number): void { this.liveClientCount = read; }
 
@@ -62,7 +66,11 @@ export class QuotaGuardService {
   setAutomationCapture(capture: (defer: StoredDefer) => string | null): void { this.captureAutomation = capture; }
   monitorStatus() {
     const state = this.store.monitor.status(this.key);
-    return { available: this.monitorCapability(), unavailableReason: this.monitorReason(), intervalMs: MONITOR_INTERVAL_MS,
+    const context = taskContext.getStore();
+    const ipc = context && !context.desktop ? this.ipcScheduler?.status(context) : undefined;
+    const available = ipc ? ipc.mechanism === "ipc" && this.config.monitorEnabled !== false : this.monitorCapability();
+    return { available, unavailableReason: ipc ? (available ? null : this.config.monitorEnabled === false ? "MONITOR_DISABLED" : ipc.reason) : this.monitorReason(), intervalMs: MONITOR_INTERVAL_MS,
+      ...(this.ipcScheduler && context ? { scheduling: this.ipcScheduler.diagnostics() } : {}),
       pendingRecords: this.store.monitor.list(this.key).length,
       nextPollAt: iso(state?.nextPollAt ?? null), lastPollAt: iso(state?.lastPollAt ?? null),
       lastError: state?.lastError ?? null, requiresLiveMcpProcess: true,
@@ -445,7 +453,7 @@ export class QuotaGuardService {
   /** Internal timer path, never a public force-refresh input. */
   async monitorQuota(): Promise<QuotaSnapshot> {
     const cache = this.store.getCache(this.key);
-    if (cache && this.store.monitor.list(this.key).length) {
+    if (cache && (this.store.monitor.list(this.key).length || this.store.ipc.list(this.key).some(wake => wake.state == "scheduled" || wake.state == "waiting"))) {
       this.store.capCacheDeadline(this.key, cache.fetchedAtMs + MONITOR_INTERVAL_MS);
     }
     return this.quotaStatus();
@@ -456,7 +464,7 @@ export class QuotaGuardService {
     const recovery = this.store.monitor.list(this.key).find(item => item.deferId === defer.id);
     // The defer belongs to a workspace/task/role, not the account that exhausted
     // quota. A newly signed-in account may recover it using its own profile.
-    if (!recovery || !cache?.accountFingerprint || cache.snapshot.fetchedAt !== snapshot.fetchedAt
+    if ((!recovery && !this.store.ipc.has(this.key, defer.id)) || !cache?.accountFingerprint || cache.snapshot.fetchedAt !== snapshot.fetchedAt
       || snapshot.stale || snapshot.refreshInProgress || snapshot.error
       || !snapshot.lanes[defer.laneId]?.bucket) return false;
     const checkpoint = this.getCheckpoint(defer.workspaceRoot, defer.taskId, defer.checkpointId);
@@ -558,8 +566,11 @@ export class QuotaGuardService {
     reason: "scheduled" | "reset_too_far" | "reset_unknown" | "advisory_only"; automationPrompt: string;
     automationRequest: ResumeAutomationRequest | null; quota: QuotaSnapshot;
     earlyRecovery: { ready: boolean; reason: string | null; requiredAction: string | null };
+    scheduling: SchedulingStatus;
   }> {
     if (!payload.taskId) throw new Error("taskId is required for defer_until_reset in v0.2");
+    const callingTask = taskContext.getStore();
+    if (callingTask && callingTask.taskId !== payload.taskId) throw new Error("SCHEDULER_TASK_MISMATCH");
     const status = await this.quotaStatus();
     const quota = this.decorate(status, this.store.getCache(this.key)?.accountFingerprint ?? null, payload.jobClass ?? null);
     const laneId = payload.laneId ?? "primary";
@@ -575,11 +586,13 @@ export class QuotaGuardService {
     const reason = quota.lanes[laneId]?.quotaPath === "weekly_advisory" ? "advisory_only"
       : resumeAtMs === null ? "reset_unknown" : canSchedule ? "scheduled" : "reset_too_far";
     const automationPrompt = RESUME_AUTOMATION_PROMPT;
-    const automationRequest = canSchedule && resumeAtMs !== null
+    const scheduling = this.ipcScheduler?.schedule(defer, canSchedule)
+      ?? { mechanism: "desktop" as const, state: "waiting" as const, reason: null };
+    const automationRequest = scheduling.mechanism === "desktop" && canSchedule && resumeAtMs !== null
       ? resumeAutomationRequest(defer.id, payload.taskId, resumeAtMs)
       : null;
     return { deferId: defer.id, defer, checkpoint, resumeAt: iso(resumeAtMs), canSchedule, reason,
-      automationPrompt, automationRequest, quota,
+      automationPrompt, automationRequest, quota, scheduling,
       earlyRecovery: { ready: this.monitorStatus().available, reason: this.monitorStatus().unavailableReason,
         requiredAction: this.monitorStatus().available ? null
           : "Run scheduler-bridge-doctor from the installed Guard. Resolve discovery/context failure and recheck quota_status.monitor.available. Until verified, report only the original scheduled wake; do not promise early recovery." } };

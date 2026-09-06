@@ -10,7 +10,7 @@ export const SERVER_INSTRUCTIONS = [
   "Before claiming early auto-resume is enabled, require quota_status.monitor.available=true. If unavailable, run the installed scheduler-bridge-doctor and resolve its reported configuration/context issue, then recheck. defer_until_reset.earlyRecovery describes readiness; canSchedule only permits the original timed heartbeat. Never promise early recovery when readiness is false.",
   "Use this server for substantial or long-running work, not for every command or small read.",
   "Use workspace paths in the Guard host format; Windows-hosted WSL callers must use the wslpath -w result.",
-  "For a schedulable defer, pass automationRequest unchanged to the host automation_update tool; do not inspect automations, browse scheduling docs, or rewrite its fixed prompt, then attach only the returned automation ID.",
+  "For a schedulable defer, IPC scheduling.state=scheduled confirms a core-owned wake: do not create or attach a Desktop automation. Otherwise pass a non-null automationRequest unchanged to host automation_update and attach its returned ID. Unavailable scheduling means checkpoint only, with manual resume. Never invent a scheduler or switch an existing defer between mechanisms.",
   "Call quota_status near the start, then call job_preflight with a stable jobId before each bounded substantial segment. A timely job_preflight also counts as a quota check; avoid redundant paired calls.",
   "During active work, recheck quota by checkAgainBy at the next tool boundary; do not wait for a major checkpoint. Never begin an unsplittable model operation beyond the deadline. A running model generation cannot be interrupted by this MCP; never interrupt an atomic or unsafe operation solely to check quota.",
   "Keep main work on the primary lane; use secondary only when quota_status explicitly reports it available.",
@@ -76,7 +76,7 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "2.2.0" },
+    { name: "codex-quota-guard-mcp", version: "2.3.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -91,6 +91,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
     const monitor = service.monitorStatus() as Record<string, unknown>;
     return result({ ...(input.detail === "full" ? snapshot : input.detail === "compact" ? compactQuota(snapshot) : summaryQuota(snapshot)),
       monitor: input.detail === "summary" ? { available: monitor.available, unavailableReason: monitor.unavailableReason,
+        ...(monitor.scheduling ? { scheduling: monitor.scheduling } : {}),
         ...(monitor.lastError ? { lastError: monitor.lastError } : {}),
         ...(monitor.pendingRecords ? { pendingRecords: monitor.pendingRecords } : {}),
       } : monitor });
@@ -148,7 +149,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   });
 
   server.registerTool("defer_until_reset", {
-    description: "Checkpoint a blocked task and create an owned defer. When canSchedule is true, immediately pass automationRequest unchanged to host automation_update without inspecting automations, reading scheduler docs, or rewriting prompt; then attach its returned ID.",
+    description: "Checkpoint a blocked task and create an owned defer. IPC scheduling.state=scheduled confirms the saved internal wake; no Desktop automation is needed. For non-null automationRequest, pass it unchanged to host automation_update and attach its returned ID. Never schedule when canSchedule=false or claim a wake when scheduling is unavailable.",
     inputSchema: z.object({ ...checkpointFields, taskId }),
   }, async (input) => { try { return result(await service.deferUntilReset(payloadFrom(input))); } catch (error) { return failure(error); } });
 

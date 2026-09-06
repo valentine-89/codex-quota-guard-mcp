@@ -1,6 +1,8 @@
-# Codex Quota Guard MCP 2.2.0
+# Codex Quota Guard MCP 2.3.0
 
-Scheduler paths are runtime-only. Guard discovers current Desktop resources at core startup and revalidates on context binding. No saved server path or legacy server environment override is used. The host may provide current CODEX_ELECTRON_RESOURCES_PATH in memory; ambiguous discovery fails closed. Stable MCP capability and task context must pass before monitor availability.
+Windows VS Code tasks can now schedule quota resumes through the existing extension IPC owner. See [IPC resume](docs/IPC_RESUME.md). Desktop heartbeat creation and attachment remain unchanged. IPC schedules persist across app closure but run only after the same task reconnects.
+
+Desktop scheduler paths are runtime-only. Guard discovers current Desktop resources at core startup and revalidates on context binding. No saved server path or legacy server environment override is used. The host may provide current CODEX_ELECTRON_RESOURCES_PATH in memory; ambiguous discovery fails closed. Stable MCP capability and task context must pass before monitor availability.
 
 `defer_until_reset.earlyRecovery` reports whether early wake is ready. If false, Codex must resolve the diagnostic and recheck before claiming early recovery; the original timed heartbeat can still be created. Existing defers without an original automation baseline are not automatically adopted: resume manually and create a new defer if still necessary. Reconnect Desktop once to load an updated Guard connector; scheduler rediscovery does not reinstall or stop the shared core.
 

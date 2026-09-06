@@ -37,7 +37,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
-    const client = new Client({ name: "quota-guard-monitor", version: "2.2.0" }, {
+    const client = new Client({ name: "quota-guard-monitor", version: "2.3.0" }, {
       versionNegotiation: { mode: "legacy" },
     });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],
@@ -86,6 +86,7 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
   private tail: Promise<unknown> = Promise.resolve();
   private stopped = false;
   private bindingReason = "SCHEDULER_NOT_BOUND";
+  private readonly verifiedTasks = new Set<string>();
   constructor(private serverPath: string,
     private readonly factory: (environment: NodeJS.ProcessEnv) => ContextSchedulerRpc = env => new DesktopSchedulerRpc(serverPath, env),
     private readonly hostPlatform: NodeJS.Platform = process.platform,
@@ -97,6 +98,7 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
     this.current = resolveServer ? new DesktopSchedulerRpc(this.serverPath, process.env) : factory(process.env);
   }
   available(): boolean { return !!this.verifiedPipe && isAbsolute(this.serverPath) && existsSync(this.serverPath) && !this.stopped; }
+  availableForTask(taskId: string): boolean { return this.available() && this.verifiedTasks.has(taskId); }
   unavailableReason(): string | null {
     if (this.stopped) return "SCHEDULER_CLOSED";
     if (!this.available() && this.bindingReason === "SCHEDULER_DISCOVERY_AMBIGUOUS") return this.bindingReason;
@@ -132,7 +134,7 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
         this.serverPath = nextPath; this.verifiedPipe = undefined; return false;
       }
       if (pipePath === this.verifiedPipe && nextPath === this.serverPath && this.available()) {
-        try { await this.current.verifyContext(taskId); return true; }
+        try { await this.current.verifyContext(taskId); this.verifiedTasks.add(taskId); return true; }
         catch { this.verifiedPipe = undefined; }
       }
       const environment = { ...process.env, CODEX_APP_TOOLS_PIPE_PATH: pipePath };
@@ -140,6 +142,7 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
       try { await candidate.verifyContext(taskId); }
       catch (error) { this.bindingReason = schedulerFailureReason(error); await candidate.close(); return false; }
       await this.current.close(); this.current = candidate; this.verifiedPipe = pipePath; this.serverPath = nextPath;
+      this.verifiedTasks.clear(); this.verifiedTasks.add(taskId);
       return true;
     });
   }

@@ -23,11 +23,13 @@ async function main() {
   }
   const runtime = createRuntime(config);
   const clientLeases = new ClientLeaseRegistry(60_000);
+  runtime.ipc.setLiveClients(id => clientLeases.has(id));
   runtime.service.setLiveClientCount(() => clientLeases.snapshot().liveClients);
   runtime.monitor.setLiveClients(() => clientLeases.snapshot().liveClients > 0);
   let closeHttp: (() => Promise<void>) | undefined;
   try {
     const http = await startHttpServer(() => createMcpServer(runtime.service), { token, port, clientLeases,
+      bindTask: context => runtime.ipc.bind(context),
       onClientLeaseChange: () => runtime.monitor.wake(),
       diagnostics: () => ({ pid: process.pid, mode: "shared-http", installationId: managed?.installationId ?? null,
         monitor: runtime.service.monitorStatus() }),
@@ -35,6 +37,7 @@ async function main() {
     closeHttp = http.close;
     // Server lifetime is independent of protocol discovery, EOF, and any one client disconnect.
     runtime.monitor.start();
+    runtime.ipc.start();
     let stopping = false;
     let idleTimer: NodeJS.Timeout | undefined;
     const stop = () => {
@@ -54,7 +57,7 @@ async function main() {
         clientLeases.expire();
         if (clientLeases.snapshot().liveClients > 0) noClientSince = Date.now();
         if (managedCoreCanStop(Date.now() - noClientSince, 5_000, state.activeRequests,
-          runtime.monitor.isBusy())) stop();
+          runtime.monitor.isBusy() || runtime.ipc.isBusy())) stop();
       }, 1_000);
       idleTimer.unref();
     }

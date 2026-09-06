@@ -1,4 +1,4 @@
-# MCP API 2.2.0
+# MCP API 2.3.0
 
 `quota_status` and `job_preflight` default to `detail="summary"`, normally around 1 KB of JSON. `detail="full"` returns the original data; `detail="compact"` keeps deduplicated quota data (including nested preflight quota). Selecting detail never forces a refresh. Responses omit the redundant `format` marker; no compatibility marker or fallback is provided.
 
@@ -19,3 +19,9 @@ Quota checks use shared cache, single-flight refresh, lease, and backoff. There 
 Automatic banked-reset use is opt-in. When enabled, Guard emits a recommendation only for a valid reset, an eligible plan, low weekly quota, and a reset more than 72 hours away. The host performs the reset; Guard never buys credits or reads auth files.
 
 See [Getting started](GETTING_STARTED.md) and [README](../README.md).
+
+## IPC scheduling (2.3.0, additive)
+
+The eight tool names and inputs remain unchanged. `defer_until_reset.scheduling` reports `mechanism` (`desktop`, `ipc`, `unavailable`), `state` (`scheduled`, `waiting`, `uncertain`, `cancelled`, `completed`), and `reason`. IPC `scheduled` confirms a saved internal wake; `automationRequest` is null and no `defer_automation_attach` call is needed. Desktop still returns the unchanged heartbeat request for host creation and attachment. `canSchedule` validates timing only.
+
+`quota_status.monitor.scheduling` contains task-scoped mechanism readiness and IPC records, including dispatch attempt and acknowledged turn ID. `scheduled` with a turn ID means delivery was acknowledged; only `resume_prepare` consuming the defer makes it `completed`. An `uncertain` dispatch is not retried automatically. Compact and summary outputs retain scheduler readiness. Existing direct clients without inherited context retain the Desktop contract; IPC requires a live connector and verified task identity.

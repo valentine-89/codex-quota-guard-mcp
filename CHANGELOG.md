@@ -2,6 +2,14 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
+## [2.3.0] - 2026-09-06
+
+- Add Windows VS Code quota wake scheduling through the existing task owner's IPC connection.
+- Persist IPC schedules separately, fence dispatch before sending, and never replay an uncertain acknowledgement.
+- Keep Desktop heartbeat APIs and stored automations unchanged; add task-scoped readiness diagnostics and a read-only IPC doctor.
+- Preserve app-bound lifecycle and reconnect recovery; no independent scheduler, CLI resume, or credential access.
+- Schema 6 adds IPC wake state; older runtimes cannot open the migrated database.
+
 ## [2.2.0] - 2026-09-06
 
 - Scheduler paths are runtime-only: resolve on startup and context renewal; remove saved paths and the legacy server override during installation. No stored-path fallback.

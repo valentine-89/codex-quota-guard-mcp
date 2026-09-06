@@ -156,6 +156,12 @@ async function main() {
       const headers: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
         Accept: "application/json, text/event-stream", "MCP-Protocol-Version": requestProtocolVersion, "Mcp-Method": method };
       if (routedName) headers["Mcp-Name"] = routedName;
+      // Only inherited host context binds a scheduler; tool arguments cannot select another task.
+      if (leaseId && process.env.CODEX_THREAD_ID) {
+        headers["X-Guard-Task"] = process.env.CODEX_THREAD_ID;
+        headers["X-Guard-Client"] = leaseId;
+        headers["X-Guard-Desktop"] = process.env.CODEX_APP_TOOLS_PIPE_PATH ? "true" : "false";
+      }
       const response = await fetch(url, { method: "POST", redirect: "error", headers,
         body: JSON.stringify(message), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]) });
       const responseText = await response.text();

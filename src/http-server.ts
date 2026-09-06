@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Socket } from "node:net";
 import { createMcpHandler, type McpServer } from "@modelcontextprotocol/server";
 import type { ClientLeaseRegistry } from "./client-leases.js";
+import { taskContext, type TaskContext } from "./task-context.js";
 
 export interface HttpServerOptions {
   token: string;
@@ -13,6 +14,7 @@ export interface HttpServerOptions {
   requestTimeoutMs?: number;
   diagnostics?: () => object;
   bindDesktop?: (pipePath: string, taskId: string) => Promise<boolean>;
+  bindTask?: (context: TaskContext) => Promise<void>;
   clientLeases?: ClientLeaseRegistry;
   onClientLeaseChange?: () => void;
   now?: () => number;
@@ -107,9 +109,14 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
         if (Array.isArray(value)) for (const item of value) headers.append(name, item);
         else if (value !== undefined) headers.set(name, value);
       }
-      const protocolResponse = await protocolHandler.fetch(new Request(`http://${authority}${req.url}`, {
+      const taskId = req.headers["x-guard-task"], clientId = req.headers["x-guard-client"];
+      const context: TaskContext | undefined = typeof taskId === "string" && /^[a-f0-9-]{36}$/i.test(taskId)
+        && typeof clientId === "string" && options.clientLeases?.has(clientId)
+        ? { taskId, clientId, desktop: req.headers["x-guard-desktop"] === "true" } : undefined;
+      if (context) await options.bindTask?.(context);
+      const protocolResponse = await taskContext.run(context, () => protocolHandler.fetch(new Request(`http://${authority}${req.url}`, {
         method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout),
-      }), { parsedBody: body });
+      }), { parsedBody: body }));
       const responseHeaders = Object.fromEntries(protocolResponse.headers.entries());
       res.writeHead(protocolResponse.status, responseHeaders);
       res.end(Buffer.from(await protocolResponse.arrayBuffer()));
