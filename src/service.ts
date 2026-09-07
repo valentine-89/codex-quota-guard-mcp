@@ -16,7 +16,7 @@ import {
   ttlForWindow,
 } from "./policy.js";
 import { accountFingerprint, profileKey } from "./store.js";
-import { pacingFor, samplePacing } from "./pacing.js";
+import { pacingFor, pacingMode, samplePacing } from "./pacing.js";
 import { MONITOR_INTERVAL_MS } from "./monitor-state.js";
 import type { IpcScheduler, SchedulingStatus } from "./ipc-scheduler.js";
 import { taskContext } from "./task-context.js";
@@ -216,7 +216,8 @@ export class QuotaGuardService {
     const pacing = Object.fromEntries((["primary", "secondary"] as const).map(lane => [lane,
       pacingFor({ ...snapshot, lanes }, lane, this.store.getPacing(this.key, lane),
         fingerprint ? JSON.stringify([fingerprint, snapshot.planType, lanes[lane]?.bucket?.limitId]) : null,
-        Math.max(5, lanes[lane]?.profile.effectiveThresholdPercent ?? 5), this.now()),
+        lanes[lane]?.profile.policyMode === "weekly_only" ? lanes[lane]!.profile.effectiveThresholdPercent
+          : Math.max(5, lanes[lane]?.profile.effectiveThresholdPercent ?? 5), this.now()),
     ]));
     return {
       ...snapshot,
@@ -333,7 +334,9 @@ export class QuotaGuardService {
         }
       }
       if (!fingerprint || !cached || cached.accountFingerprint !== fingerprint || cached.snapshot.planType !== planType
-        || learningWindowChanged || backoff) this.store.clearPacing(this.key);
+        || learningWindowChanged || backoff
+        || (["primary", "secondary"] as const).some(lane =>
+          pacingMode(cached.snapshot.lanes[lane]?.bucket) !== pacingMode(lanes[lane]?.bucket))) this.store.clearPacing(this.key);
       for (const lane of ["primary", "secondary"] as const) {
         const bucket = lanes[lane]?.bucket;
         if (bucket && fingerprint) this.store.savePacing(this.key, lane, samplePacing(this.store.getPacing(this.key, lane),
@@ -492,7 +495,7 @@ export class QuotaGuardService {
     if (pacing) {
       // A healthy weekly job may span several check intervals. Its duration is
       // not an assertion that every model operation is atomic/unchecked.
-      const periodicWeekly = pacing.reason === "bounded_weekly_work" && result.decision === "allow";
+      const periodicWeekly = pacing.reason === "bounded_weekly_work" && result.decision !== "defer";
       const mustSplit = !periodicWeekly && input.estimatedMinutes !== undefined && input.estimatedMinutes > pacing.maxSegmentMinutes;
       const exhausted = pacing.maxSegmentMinutes <= 0;
       const enforce = result.decision !== "defer";

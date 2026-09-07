@@ -3,6 +3,9 @@ import type { QuotaBucket, QuotaSnapshot, QuotaLaneId } from "./types.js";
 export const PACING_MAX_GAP_MS = 15 * 60_000;
 export const PACING_RATE_MAX_AGE_MS = 5 * 60_000;
 interface SampleWindow { id: string; reset: string; remaining: number; rates: number[] }
+export function pacingMode(bucket: QuotaBucket | null | undefined): string {
+  return bucket?.fiveHour ? "five_hour" : bucket?.weekly ? "weekly" : "other";
+}
 export interface PacingSample { identity: string; at: number; windows: SampleWindow[] }
 export interface Pacing {
   confidence: "cold_start" | "low" | "ready" | "unavailable";
@@ -46,7 +49,10 @@ export function pacingFor(snapshot: QuotaSnapshot, laneId: QuotaLaneId, sample: 
   const lane = snapshot.lanes[laneId];
   const unavailable = snapshot.stale || snapshot.refreshInProgress || !!snapshot.error || !!snapshot.backoffUntil || !lane?.available;
   const age = sample ? now - sample.at : Infinity;
-  const usable = !unavailable && sample?.identity === identity && age >= 0 && age <= PACING_RATE_MAX_AGE_MS;
+  const currentWindows = lane?.bucket ? windows(lane.bucket) : [];
+  const usable = !unavailable && sample?.identity === identity && age >= 0 && age <= PACING_RATE_MAX_AGE_MS
+    && currentWindows.length === sample.windows.length
+    && currentWindows.every((w, i) => w.id === sample.windows[i]!.id && w.reset === sample.windows[i]!.reset);
   const count = usable && sample.windows.length ? Math.min(...sample.windows.map(w => w.rates.length + 1), 5) : 0;
   const rate = usable ? Math.max(0, ...sample.windows.flatMap(w => w.rates)) * 1.5 : 0;
   const budgets = usable ? sample.windows.flatMap(w => {
@@ -57,10 +63,10 @@ export function pacingFor(snapshot: QuotaSnapshot, laneId: QuotaLaneId, sample: 
   const confidence = unavailable ? "unavailable" : count >= 3 ? "ready" : count >= 2 ? "low" : "cold_start";
   const urgent = confidence !== "ready" || lane?.recommendation !== "continue" || rate >= 1
     || (minutesToReserve !== null && minutesToReserve <= 10);
-  const healthyWeekly = lane?.profile.policyMode === "weekly_only" && lane.recommendation === "continue"
-    && (lane.window?.remainingPercent ?? 0) > reservePercent + 10
+  const weekly = lane?.profile.policyMode === "weekly_only";
+  const healthyWeekly = weekly && lane.quotaPath === "included"
     && (minutesToReserve === null || minutesToReserve > 10);
-  const interval = healthyWeekly ? 5 * 60_000 : urgent ? 30_000 : 60_000;
+  const interval = healthyWeekly ? (lane.recommendation === "continue" ? 5 * 60_000 : 60_000) : urgent ? 30_000 : 60_000;
   // Deadlines are anchored to the backend read: repeated cache calls never renew them.
   const fetched = snapshot.fetchedAt ? Date.parse(snapshot.fetchedAt) : now;
   const deadline = unavailable ? Math.max(now + 30_000, Date.parse(snapshot.nextRefreshAt))

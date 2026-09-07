@@ -9,6 +9,41 @@ import { normalizeRateLimits, buildPolicyProfile } from "../src/policy.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
 const DAY = 86_400_000;
+test("weekly 4-10 percent admits long jobs without importing five-hour reserves", async () => {
+  for (const remaining of [4, 8, 9, 10]) {
+    const f = fixture(remaining);
+    try {
+      const result = await f.service.jobPreflight({ ...f.job(), estimatedMinutes: 60, jobClass: "long" });
+      assert.equal(result.canStartSegment, true);
+      assert.equal(result.checkpointRequired, false);
+      assert.equal(result.quota.pacing?.primary?.reservePercent, 3);
+      assert.equal(result.maxSegmentMinutes, remaining <= 8 ? 1 : 5);
+    } finally { f.close(); }
+  }
+});
+
+test("quota mode and plan transitions replace persisted pacing, including switching back", async () => {
+  const f = fixture(90);
+  try {
+    await f.service.quotaStatusForRequest();
+    f.advance(300_000); f.bucket.secondary!.usedPercent = 11;
+    assert.equal((await f.service.quotaStatusForRequest()).pacing?.primary?.sampleCount, 2);
+    for (const [mode, plan] of [["five", "plus"], ["weekly", "plus"], ["weekly", "pro"], ["weekly", "plus"], ["five", "pro"]]) {
+      f.advance(300_000);
+      f.bucket.planType = plan;
+      f.raw.account.account!.planType = plan;
+      f.bucket.primary = mode === "five" ? { usedPercent: 1, windowDurationMins: 300, resetsAt: (f.now() + 3_600_000) / 1000 } : null;
+      const status = await f.service.quotaStatusForRequest();
+      assert.equal(status.pacing?.primary?.sampleCount, 1);
+      assert.equal(status.pacing?.primary?.burnRatePercentPerMinute, null);
+      assert.equal(status.pacing?.primary?.minutesToReserve, null);
+      const saved = f.store.getPacing(profileKey(f.config.codexHome), "primary");
+      assert.ok(saved?.windows.every(w => w.rates.length === 0));
+      assert.equal(status.profile.policyMode, mode === "five" ? "adaptive" : "weekly_only");
+    }
+  } finally { f.close(); }
+});
+
 test("healthy weekly quota admits grouped work for five minutes without repeated refresh", async () => {
   const f = fixture();
   try {
