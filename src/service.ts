@@ -436,7 +436,7 @@ export class QuotaGuardService {
       const status = this.decorate(cached.snapshot, cached.accountFingerprint);
       const deadlines = Object.entries(status.pacing ?? {}).filter(([lane]) => status.lanes[lane as QuotaLaneId]?.available)
         .map(([, p]) => Date.parse(p.checkAgainBy));
-      const deadline = Math.min(cached.fetchedAtMs + 60_000, ...deadlines);
+      const deadline = deadlines.length ? Math.min(...deadlines) : cached.fetchedAtMs + 60_000;
       // A depleted budget may request an immediate stop, but cannot force backend reads faster than 30s.
       this.store.capCacheDeadline(this.key, Math.max(cached.fetchedAtMs + INTERACTIVE_REFRESH_MIN_AGE_MS, deadline));
     }

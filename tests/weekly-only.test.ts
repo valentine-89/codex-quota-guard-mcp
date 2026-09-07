@@ -9,6 +9,25 @@ import { normalizeRateLimits, buildPolicyProfile } from "../src/policy.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
 const DAY = 86_400_000;
+test("healthy weekly quota admits grouped work for five minutes without repeated refresh", async () => {
+  const f = fixture();
+  try {
+    const first = await f.service.jobPreflight({ ...f.job(), estimatedMinutes: 4 });
+    assert.equal(first.canStartSegment, true);
+    assert.equal(first.maxSegmentMinutes, 5);
+    assert.equal(first.quota.pacing?.primary?.reason, "bounded_weekly_work");
+    f.advance(60_000);
+    const cached = await f.service.quotaStatusForRequest();
+    assert.equal(f.reads(), 1);
+    assert.equal(cached.checkAgainBy, first.checkAgainBy);
+    f.advance(240_000);
+    f.bucket.secondary!.usedPercent = 96;
+    const low = await f.service.jobPreflight({ ...f.job("low"), estimatedMinutes: 4 });
+    assert.equal(f.reads(), 2);
+    assert.equal(low.canStartSegment, false);
+    assert.ok(low.maxSegmentMinutes !== undefined && low.maxSegmentMinutes <= 0.5);
+  } finally { f.close(); }
+});
 function fixture(remaining = 100, wait: number | null = 7 * DAY) {
   const dir = mkdtempSync(join(tmpdir(), "quota-weekly-"));
   const store = new StateStore(join(dir, "state.sqlite"));

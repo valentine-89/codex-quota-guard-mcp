@@ -57,7 +57,10 @@ export function pacingFor(snapshot: QuotaSnapshot, laneId: QuotaLaneId, sample: 
   const confidence = unavailable ? "unavailable" : count >= 3 ? "ready" : count >= 2 ? "low" : "cold_start";
   const urgent = confidence !== "ready" || lane?.recommendation !== "continue" || rate >= 1
     || (minutesToReserve !== null && minutesToReserve <= 10);
-  const interval = urgent ? 30_000 : 60_000;
+  const healthyWeekly = lane?.profile.policyMode === "weekly_only" && lane.recommendation === "continue"
+    && (lane.window?.remainingPercent ?? 0) > reservePercent + 10
+    && (minutesToReserve === null || minutesToReserve > 10);
+  const interval = healthyWeekly ? 5 * 60_000 : urgent ? 30_000 : 60_000;
   // Deadlines are anchored to the backend read: repeated cache calls never renew them.
   const fetched = snapshot.fetchedAt ? Date.parse(snapshot.fetchedAt) : now;
   const deadline = unavailable ? Math.max(now + 30_000, Date.parse(snapshot.nextRefreshAt))
@@ -66,6 +69,6 @@ export function pacingFor(snapshot: QuotaSnapshot, laneId: QuotaLaneId, sample: 
     burnRatePercentPerMinute: rate > 0 ? rate : null, minutesToReserve, reservePercent,
     checkAgainBy: new Date(deadline).toISOString(),
     maxSegmentMinutes: unavailable ? 0 : Math.max(0, Math.min(interval / 60_000, (deadline - now) / 60_000)),
-    reason: unavailable ? "quota_unavailable" : confidence === "cold_start" ? "fresh_samples_required"
+    reason: unavailable ? "quota_unavailable" : healthyWeekly ? "bounded_weekly_work" : confidence === "cold_start" ? "fresh_samples_required"
       : urgent ? "short_segment_required" : "bounded_active_work" };
 }
