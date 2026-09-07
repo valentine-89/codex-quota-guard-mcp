@@ -217,7 +217,7 @@ export class QuotaGuardService {
       pacingFor({ ...snapshot, lanes }, lane, this.store.getPacing(this.key, lane),
         fingerprint ? JSON.stringify([fingerprint, snapshot.planType, lanes[lane]?.bucket?.limitId]) : null,
         lanes[lane]?.profile.policyMode === "weekly_only" ? lanes[lane]!.profile.effectiveThresholdPercent
-          : Math.max(5, lanes[lane]?.profile.effectiveThresholdPercent ?? 5), this.now()),
+          : Math.max(5, lanes[lane]?.profile.effectiveThresholdPercent ?? 5), this.now(), this.config.weeklyOnlyRemainingPercent),
     ]));
     return {
       ...snapshot,

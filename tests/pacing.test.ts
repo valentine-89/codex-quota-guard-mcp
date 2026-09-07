@@ -12,11 +12,11 @@ function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "guard-pacing-")), path = join(dir, "state.sqlite");
   const store = new StateStore(path);
   let now = 1_700_000_000_000, reads = 0, used = 33, email = "one@example.invalid", plan = "plus";
-  let reset = (now + 7 * 86_400_000) / 1_000, fail = false, limit = "codex";
+  let reset = (now + 7 * 86_400_000) / 1_000, fail = false, limit = "codex", weeklyUsed = 10;
   const reader = { readQuota: async () => {
     reads++;
     if (fail) throw Error("backend failed");
-    const raw = rawQuota(used, reset, { planType: plan, limitId: limit, weeklyUsed: 10 });
+    const raw = rawQuota(used, reset, { planType: plan, limitId: limit, weeklyUsed });
     raw.account.account!.email = email;
     return raw;
   } };
@@ -24,11 +24,47 @@ function fixture() {
   return { service, store, path, reader, now: () => now, reads: () => reads,
     step(ms: number, nextUsed = used) { now += ms; used = nextUsed; },
     account(value: string) { email = value; }, plan(value: string) { plan = value; },
+    weekly(value: number) { weeklyUsed = value; },
     bucket(value: string) { limit = value; }, reset() { reset += 604_800; }, fail() { fail = true; },
     close() { store.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 const job = { jobId: "gpu", taskId: "test", workspaceRoot: "C:\\test", jobClass: "long" as const,
   description: "Active model work before detached GPU launch", estimatedMinutes: 60 };
+
+test("mixed 5h/weekly quota forecasts use independent reserves", async () => {
+  const f = fixture();
+  try {
+    f.weekly(91);
+    await f.service.quotaStatusForRequest();
+    f.step(30_000); f.weekly(92);
+    const result = await f.service.jobPreflight({ ...job, jobClass: "small", estimatedMinutes: 0.1 });
+    assert.equal(result.quota.weekly?.remainingPercent, 8);
+    assert.equal(result.canStartSegment, true);
+    assert.ok(Math.abs(result.quota.pacing!.primary!.minutesToReserve! - 5 / 3) < 0.001);
+    f.step(30_000); f.weekly(97);
+    const reserve = await f.service.jobPreflight({ ...job, estimatedMinutes: 0.1 });
+    assert.equal(reserve.canStartSegment, false);
+    assert.equal(reserve.quota.pacing?.primary?.minutesToReserve, 0);
+    f.step(30_000); f.weekly(100);
+    assert.equal((await f.service.jobPreflight(job)).decision, "defer");
+  } finally { f.close(); }
+});
+
+test("mixed weekly forecast honors configured reserve independently of Plus/Pro", async () => {
+  for (const plan of ["plus", "pro"]) {
+    const f = fixture(), store = new StateStore(f.path);
+    try {
+      f.plan(plan); f.weekly(91);
+      const config = { ...testConfig(f.path), weeklyOnlyRemainingPercent: 2 };
+      const service = new QuotaGuardService(config, store, f.reader, { now: f.now });
+      await service.quotaStatusForRequest();
+      f.step(30_000); f.weekly(92);
+      const result = await service.jobPreflight({ ...job, jobClass: "small", estimatedMinutes: 0.1 });
+      assert.equal(result.canStartSegment, true);
+      assert.equal(result.quota.pacing?.primary?.minutesToReserve, 2);
+    } finally { store.close(); f.close(); }
+  }
+});
 
 test("67 to 36 to 23 percent never admits an unchecked 60-minute segment", async () => {
   const f = fixture();

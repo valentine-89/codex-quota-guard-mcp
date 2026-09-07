@@ -45,7 +45,7 @@ export function samplePacing(previous: PacingSample | null, bucket: QuotaBucket,
 }
 
 export function pacingFor(snapshot: QuotaSnapshot, laneId: QuotaLaneId, sample: PacingSample | null,
-  identity: string | null, reservePercent: number, now: number): Pacing {
+  identity: string | null, reservePercent: number, now: number, weeklyReservePercent: number): Pacing {
   const lane = snapshot.lanes[laneId];
   const unavailable = snapshot.stale || snapshot.refreshInProgress || !!snapshot.error || !!snapshot.backoffUntil || !lane?.available;
   const age = sample ? now - sample.at : Infinity;
@@ -57,7 +57,11 @@ export function pacingFor(snapshot: QuotaSnapshot, laneId: QuotaLaneId, sample: 
   const rate = usable ? Math.max(0, ...sample.windows.flatMap(w => w.rates)) * 1.5 : 0;
   const budgets = usable ? sample.windows.flatMap(w => {
     const speed = Math.max(0, ...w.rates) * 1.5;
-    return speed > 0 ? [Math.max(0, (w.remaining - reservePercent) / speed - age / 60_000)] : [];
+    // Percentages belong to their own windows; a 5h admission reserve must
+    // never become a weekly reserve merely because both occur in one lane.
+    const windowReserve = lane?.bucket?.fiveHour && w.id.endsWith(":10080")
+      ? weeklyReservePercent : reservePercent;
+    return speed > 0 ? [Math.max(0, (w.remaining - windowReserve) / speed - age / 60_000)] : [];
   }) : [];
   const minutesToReserve = budgets.length ? Math.min(...budgets) : null;
   const confidence = unavailable ? "unavailable" : count >= 3 ? "ready" : count >= 2 ? "low" : "cold_start";

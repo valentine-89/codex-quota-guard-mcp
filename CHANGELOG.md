@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Fix mixed 5h/weekly forecasts applying the 5h reserve to the weekly window. Each weekly forecast now uses the configured weekly reserve; actual exhaustion and imminent depletion still block admission.
+
 - Separate weekly pacing reserves from five-hour pacing: weekly included quota uses its own policy threshold and permits jobs across checks at 4-10% remaining absent imminent forecast exhaustion. Reset pacing on quota-mode/account/plan changes; reject mismatched window forecasts.
 
 - Reduce managed personalization to bootstrap rules and shrink shared MCP guidance; keep scheduling/reset details tool-local and retain code-enforced admission checks. Add instruction-size regression budgets.
