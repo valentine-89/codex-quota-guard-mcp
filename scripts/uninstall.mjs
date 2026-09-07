@@ -1,5 +1,6 @@
 // Removes the registration; --purge also removes the current profile's managed state.
 import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, chmodSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -51,7 +52,9 @@ if (settings) {
 }
 let purged = false;
 if (purge && existsSync(directory)) {
-  rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  // Windows can retain handles briefly after the core exits. The asynchronous
+  // remover retries EPERM/EBUSY while allowing shutdown and handle cleanup.
+  await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   purged = true;
 }
 console.log(JSON.stringify({ removed: !!registration, stopped, purged,
