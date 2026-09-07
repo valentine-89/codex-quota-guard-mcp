@@ -5,15 +5,9 @@ import { randomUUID } from 'node:crypto';
 const start = '<!-- codex-quota-guard:begin -->';
 const end = '<!-- codex-quota-guard:end -->';
 const block = `${start}
-## Quota Guard (managed by its installer)
+## Quota Guard
 
-For healthy weekly-only admission, maxSegmentMinutes limits unchecked work, not total job duration. A long job may span periodic checks: revalidate at checkAgainBy and continue the same job if admitted. Do not shorten estimates, split the job or warn solely because estimatedMinutes exceeds the interval. Atomic operations must still fit the current admission.
-
-Batch related reads, edits and tests into one bounded segment and reuse its admission until checkAgainBy/validUntil. Do not check before individual commands, small steps, progress updates or while merely waiting for external work. An initial job_preflight satisfies the initial quota check; do not pair it with quota_status. Healthy weekly-only bounded_weekly_work is normal admission, not a reason to warn or split into tiny steps.
-
-For every new task in every project, discover the codex_quota_guard MCP tools and check quota with agentProtocol="auto-reset-v1" near the start: use job_preflight when beginning substantial work, or quota_status otherwise. Before each substantial implementation, research, review or build segment, call job_preflight with the actual task ID, absolute workspaceRoot and a stable jobId. Follow the Guard server instructions and returned schema; honor canStartSegment, validUntil, checkAgainBy and checkpointRequired. Briefly report the initial Guard decision, and later only meaningful quota changes or blockers.
-If Guard is unavailable, report the error and stop substantial work instead of silently bypassing it or substituting get_usage_limits. Do not read authentication files or force refresh.
-On defer, save progress with defer_until_reset and follow its returned scheduling mechanism. For Desktop, create the returned automationRequest unchanged and attach its ID; require earlyRecovery.ready before claiming early wake. On manual or scheduled resume, call resume_prepare first and obey shouldExit/canResume. Never create an extra polling heartbeat. Follow reset-credit instructions only when Guard returns a policy-authorized recommendation; never buy credits or resets.
+At task start, discover codex_quota_guard. Use job_preflight before substantial work (actual taskId, absolute workspaceRoot, stable jobId, agentProtocol="auto-reset-v1"); quota_status only for status-only work. On deferred resume, call resume_prepare first. Follow returned decisions/actions and recheck deadlines; batch small steps, reuse valid admission, never idle-poll. Report only the initial decision and meaningful changes/blockers. If Guard is unavailable, stop substantial work; never bypass it, read auth files, force refresh, buy resets or create extra polling heartbeats.
 ${end}
 `;
 

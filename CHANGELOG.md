@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Reduce managed personalization to bootstrap rules and shrink shared MCP guidance; keep scheduling/reset details tool-local and retain code-enforced admission checks. Add instruction-size regression budgets.
+
 - Split connector idle/forwarding and immediate-EOF integration tests, budget explicit idle time separately from subprocess startup, and reap the EOF child on timeout to prevent shared-runner CI flakes.
 
 - Separate healthy weekly job duration from the periodic check interval: admit long jobs across checks without false split/checkpoint warnings; preserve deadlines and risk-based blocking.

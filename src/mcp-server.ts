@@ -7,19 +7,9 @@ import type { CheckpointPayload } from "./types.js";
 import { compactQuota, summaryPreflight, summaryQuota } from "./quota-output.js";
 
 export const SERVER_INSTRUCTIONS = [
-  "For healthy weekly-only bounded_weekly_work, maxSegmentMinutes is the remaining unchecked-work interval, not a total job-duration limit. An allowed job may continue across periodic checks; do not shorten its estimate, split the job, or warn merely because estimatedMinutes exceeds that interval. At the deadline revalidate and continue the same job if admitted. Atomic operations still must fit the current admission.",
-  "Before claiming early auto-resume is enabled, require quota_status.monitor.available=true. If unavailable, run the installed scheduler-bridge-doctor and resolve its reported configuration/context issue, then recheck. defer_until_reset.earlyRecovery describes readiness; canSchedule only permits the original timed heartbeat. Never promise early recovery when readiness is false.",
-  "Group related reads, edits and tests into one bounded segment. Reuse its valid admission; do not preflight individual commands, small reads, progress messages or external-process waits. Do not pair quota_status with an immediate job_preflight: preflight already checks quota. Recheck at checkAgainBy or before a new substantial segment, not sooner without a meaningful quota change. Healthy weekly-only bounded_weekly_work is normal admission, not a warning to split into tiny steps.",
-  "Use workspace paths in the Guard host format; Windows-hosted WSL callers must use the wslpath -w result.",
-  "For a schedulable defer, IPC scheduling.state=scheduled confirms a core-owned wake: do not create or attach a Desktop automation. Otherwise pass a non-null automationRequest unchanged to host automation_update and attach its returned ID. Unavailable scheduling means checkpoint only, with manual resume. Never invent a scheduler or switch an existing defer between mechanisms.",
-  "Check quota near the start using job_preflight when beginning substantial work, or quota_status otherwise. Call job_preflight with a stable jobId before each bounded substantial segment; avoid redundant paired calls.",
-  "During active work, recheck quota by checkAgainBy at the next tool boundary; do not wait for a major checkpoint. Never begin an unsplittable model operation beyond the deadline. A running model generation cannot be interrupted by this MCP; never interrupt an atomic or unsafe operation solely to check quota.",
-  "Keep main work on the primary lane; use secondary only when quota_status explicitly reports it available.",
-  "Honor canStartSegment, validUntil and maxSegmentMinutes even on allow/caution. If canStartSegment=false, split and preflight a shorter segment or wait until checkAgainBy; do not execute the oversized segment. Save a checkpoint when checkpointRequired=true. Treat allow and caution as time-limited admission, not a reservation. On caution, checkpoint before more substantial work unless quotaPath is weekly_advisory, and disclose mayConsumeCredits when true.",
-  "On defer, immediately call defer_until_reset with bounded state. Never schedule when canSchedule is false.",
-  "Before manual or automated resume, call resume_prepare first; stop when shouldExit is true or canResume is false.",
-  "Do not idle-poll or force quota refresh, or store credentials, complete prompts, or complete model responses in checkpoints.",
-  "Pass agentProtocol=auto-reset-v1 to quota_status and job_preflight. When quota_status returns a resetCredit recommendation, its enabled local policy is standing user authorization: call the host consume_usage_reset tool immediately with the exact idempotencyKey and without asking again; never buy a reset or credits. Retry an uncertain host response only with the same key, then report the exact outcome through quota_status.resetFollowup. Never invent a recommendation or key.",
+  "Use agentProtocol=auto-reset-v1. Preflight substantial work once per admission; batch small steps, avoid paired status/preflight calls and idle polling. Use actual taskId, stable jobId and absolute Guard-host paths (wslpath -w for Windows-hosted WSL).",
+  "Obey canStartSegment, validUntil, checkAgainBy, checkpointRequired and requiredAction. Recheck at tool boundaries when due. Healthy weekly jobs may span checks; maxSegmentMinutes bounds unchecked work, not total job duration. Atomic operations must fit admission; never interrupt unsafe work solely to check.",
+  "Use primary unless secondary is explicitly available. Disclose mayConsumeCredits. On defer call defer_until_reset immediately; before resuming call resume_prepare and obey canResume/shouldExit. Follow each tool's scheduling/reset instructions. Never bypass unavailable quota, force refresh, read auth files, buy resets or create polling heartbeats.",
 ].join(" ");
 
 const agentProtocol = z.string().optional().describe("Required breaking contract marker: auto-reset-v1.");
@@ -82,7 +72,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   );
 
   server.registerTool("quota_status", {
-    description: "Requires agentProtocol=auto-reset-v1. Read current shared Codex quota near the start of long work and by checkAgainBy at tool boundaries while active. If resetCredit.recommendation is present, call host consume_usage_reset with its exact idempotencyKey without asking again, then report the outcome in resetFollowup. The proof-bound follow-up may recheck after 3/5/10 seconds; there is no generic force refresh.",
+    description: "Read shared quota when due or for status-only work; preflight already checks it. Requires agentProtocol=auto-reset-v1. A resetCredit.recommendation is policy-authorized: call host consume_usage_reset with its exact idempotencyKey without asking again, then report the exact outcome via resetFollowup. Retry uncertain outcomes only with the same key; never invent a recommendation.",
     inputSchema: z.object({ agentProtocol, resetFollowup: resetFollowup.optional(),
       detail,
     }).strict(),
@@ -99,7 +89,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
-    description: "Requires agentProtocol=auto-reset-v1. Call once with a stable jobId before each substantial token-consuming work segment, not before individual commands or small reads. Honor canStartSegment=false by splitting and preflighting again; admission expires at validUntil. Save progress when checkpointRequired. Use primary for main work; secondary only when quota_status reports it.",
+    description: "Admit substantial work with agentProtocol=auto-reset-v1 and a stable jobId. Reuse valid admission for small steps. Follow action fields; healthy weekly jobs can exceed the check interval without splitting. On resetCredit.recommendation, follow quota_status reset instructions before more work.",
     inputSchema: z.object({
       agentProtocol, detail,
       jobId: z.string().min(1).max(256).describe("Stable idempotency identifier for this part-job."),
@@ -150,7 +140,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   });
 
   server.registerTool("defer_until_reset", {
-    description: "Checkpoint a blocked task and create an owned defer. IPC scheduling.state=scheduled confirms the saved internal wake; no Desktop automation is needed. For non-null automationRequest, pass it unchanged to host automation_update and attach its returned ID. Never schedule when canSchedule=false or claim a wake when scheduling is unavailable.",
+    description: "Checkpoint a blocked task and create an owned defer. IPC scheduling.state=scheduled confirms an internal wake: no Desktop automation. Otherwise pass a non-null automationRequest unchanged to host automation_update and attach its returned ID. Never schedule if canSchedule=false, invent or switch mechanisms. Claim early wake only when earlyRecovery.ready; if false, follow its diagnostic (scheduler-bridge-doctor), then recheck readiness.",
     inputSchema: z.object({ ...checkpointFields, taskId }),
   }, async (input) => { try { return result(await service.deferUntilReset(payloadFrom(input))); } catch (error) { return failure(error); } });
 

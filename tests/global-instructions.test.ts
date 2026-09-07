@@ -15,8 +15,12 @@ test('global guidance install/update/remove preserves personal text and follows 
     writeFileSync(path, personal);
     updateGlobalInstructions(home);
     const installed = readFileSync(path, 'utf8');
+    assert.ok(installed.length - personal.length < 850, 'personalization must remain a compact bootstrap');
+    assert.ok(installed.includes('resume_prepare'));
+    assert.ok(installed.includes('stop substantial work'));
     assert.ok(installed.includes('job_preflight'));
     assert.ok(installed.endsWith(personal));
+    writeFileSync(path, '<!-- codex-quota-guard:begin -->\n' + 'Old detailed guidance. '.repeat(100) + '\n<!-- codex-quota-guard:end -->\n' + personal);
     updateGlobalInstructions(home);
     assert.equal(readFileSync(path, 'utf8'), installed);
     writeFileSync(override, 'Override user text');

@@ -11,6 +11,13 @@ import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
 
+test("shared MCP guidance stays compact and preserves admission safeguards", () => {
+  assert.ok(SERVER_INSTRUCTIONS.length < 1500);
+  for (const field of ["canStartSegment", "checkAgainBy", "checkpointRequired", "resume_prepare", "requiredAction"]) {
+    assert.ok(SERVER_INSTRUCTIONS.includes(field));
+  }
+});
+
 test("stable MCP discovery exposes instructions, adaptive profile, and defer lifecycle tools", async () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-mcp-"));
   const store = new StateStore(join(directory, "state.sqlite"));
@@ -31,7 +38,8 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     assert.equal(client.getServerVersion()?.version, "2.3.0");
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.match(client.getInstructions() ?? "", /checkAgainBy/);
-    assert.match(client.getInstructions() ?? "", /never interrupt an atomic or unsafe operation/);
+    assert.match(client.getInstructions() ?? "", /never interrupt unsafe work/);
+    assert.match(client.getInstructions() ?? "", /Atomic operations must fit admission/);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
       "checkpoint_create",
