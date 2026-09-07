@@ -4,7 +4,9 @@
 2. Clone the repo, then run `npm ci`, `npm run check`, and `node scripts/install.mjs`.
 3. Restart or reconnect Codex, call `quota_status`, and preflight each substantial segment.
 
-Automatic use of an existing banked reset is disabled by default. Run `node scripts/install.mjs --enable-auto-reset` to opt this profile in; this does not buy resets or credits and does not modify a global AGENTS file. Version 1 agents must pass `agentProtocol="auto-reset-v1"` to `quota_status` and `job_preflight`.
+Installation automatically manages a Quota Guard block in this profile's global AGENTS instructions for all projects and new tasks. Existing personal text is preserved; reinstall updates the block and uninstall removes it. Start a new task after installing to load the guidance.
+
+Automatic use of an existing banked reset is disabled by default. Run `node scripts/install.mjs --enable-auto-reset` to opt this profile in; this does not buy resets or credits. Agents must pass `agentProtocol="auto-reset-v1"` to `quota_status` and `job_preflight`.
 During active work, follow `checkAgainBy`, `validUntil`, `canStartSegment`, and `maxSegmentMinutes`; save a checkpoint before expensive or detached GPU work.
 
 The installer creates private Guard state under the tool's `data/core-<profile hash>/` and preserves unrelated Codex configuration without creating backups. Run it from the intended installed checkout, which must be writable. `guard.json`, `runtime.json`, and `state.sqlite` stay together; keep `data/` when updating code. Only the MCP registration remains in Codex's `config.toml`.

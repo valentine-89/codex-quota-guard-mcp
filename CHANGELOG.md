@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Install and remove a marked profile-wide AGENTS instruction block so new tasks across projects are guided to use Quota Guard; preserve personal text and honor global override precedence.
+
 - Register connector leases at startup so reopening Codex keeps the shared core and pending early-recovery monitor alive before any tool call. Disconnect cleanup and lease expiry still bound the core lifetime.
 
 ## [2.3.0] - 2026-09-06

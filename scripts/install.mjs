@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { parse, stringify } from "smol-toml";
 import { readManagedSettings } from "../dist/managed.js";
 import { installationSettingsPath } from "./install-paths.mjs";
+import { updateGlobalInstructions } from "./global-instructions.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const argumentsSet = new Set(process.argv.slice(2));
@@ -84,6 +85,7 @@ try {
   renameSync(temporary, configPath);
   if (process.platform !== "win32") chmodSync(configPath, 0o600);
 } finally { if (existsSync(temporary)) rmSync(temporary, { force: true }); }
-console.log(JSON.stringify({ installed: true, platform: process.platform, arch: process.arch,
+const globalInstructions = updateGlobalInstructions(home);
+console.log(JSON.stringify({ installed: true, globalInstructions, platform: process.platform, arch: process.arch,
   settingsPath: provision.settingsPath, onDemand: true, scheduledTask: false,
   serviceInstalled: false, migrationPerformed: false, automaticWeeklyResetEnabled: enableAutoReset }));

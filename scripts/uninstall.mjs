@@ -6,11 +6,13 @@ import { randomUUID } from "node:crypto";
 import { parse } from "smol-toml";
 import { managedHealth, readManagedSettings } from "../dist/managed.js";
 import { installationSettingsPath } from "./install-paths.mjs";
+import { updateGlobalInstructions } from "./global-instructions.mjs";
 
 const args = process.argv.slice(2);
 if (args.some(arg => arg !== "--purge")) throw Error("Unknown uninstaller option");
 const purge = args.includes("--purge");
 const home = resolve(process.env.CODEX_HOME ?? join(homedir(), ".codex"));
+updateGlobalInstructions(home, false);
 const configPath = join(home, "config.toml");
 const original = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
 const config = parse(original);
