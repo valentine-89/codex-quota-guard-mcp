@@ -200,7 +200,9 @@ test("disconnected in-flight work retains its concurrency slot; overload does no
   } finally { release(); await http.close(); }
 });
 
-test("wire-only stdio connector uses existing HTTP service and exits on EOF", { timeout: 10_000 }, async () => {
+// Includes a deliberate 5.5s idle observation plus TS subprocess startup on
+// shared CI runners. EOF is tested separately so it cannot consume this budget.
+test("wire-only stdio connector keeps an idle HTTP lease and forwards tools", { timeout: 30_000 }, async () => {
   const f = await fixture();
   const env = { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token };
   const client = new Client({ name: "connector-test", version: "1" }, {
@@ -223,13 +225,36 @@ test("wire-only stdio connector uses existing HTTP service and exits on EOF", { 
     for (let i = 0; i < 100 && f.liveClients(); i++) await delay(10);
     assert.equal(f.liveClients(), 0);
     assert.equal(f.reads(), 1);
-    const child = spawn(process.execPath, ["--import", "tsx", resolve("src/http-connector.ts")], { env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
-    const exit = new Promise<number | null>(resolve => child.once("exit", resolve));
-    child.stdout.resume(); child.stderr.resume();
-    child.stdin.end();
-    assert.equal(await exit, 0);
     assert.equal((await f.connect()).getServerVersion()?.name, "codex-quota-guard-mcp");
   } finally { await client.close(); await f.close(); }
+});
+
+test("wire-only stdio connector exits cleanly on immediate EOF", { timeout: 15_000 }, async t => {
+  const f = await fixture();
+  const child = spawn(process.execPath, ["--import", "tsx", resolve("src/http-connector.ts")], {
+    env: { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token },
+    windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
+  });
+  // Observe close before ending stdin, and always reap the child before closing
+  // its HTTP fixture (including timeout and startup failure).
+  let spawnError: Error | undefined;
+  child.once("error", error => { spawnError = error; });
+  const closed = new Promise<number | null>(resolveClose => child.once("close", resolveClose));
+  const abort = () => { child.kill(); };
+  t.signal.addEventListener("abort", abort, { once: true });
+  child.stdout.resume(); child.stderr.resume();
+  try {
+    child.stdin.end();
+    const code = await closed;
+    assert.ifError(spawnError);
+    assert.equal(code, 0);
+    assert.equal(f.liveClients(), 0, "EOF must unregister the startup lease");
+  } finally {
+    t.signal.removeEventListener("abort", abort);
+    child.kill();
+    await closed;
+    await f.close();
+  }
 });
 
 test("stdio connector retains modern discovery and reports missing settings only on stderr", { timeout: 10_000 }, async () => {
