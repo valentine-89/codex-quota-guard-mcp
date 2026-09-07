@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Separate healthy weekly job duration from the periodic check interval: admit long jobs across checks without false split/checkpoint warnings; preserve deadlines and risk-based blocking.
+
 - Give healthy weekly-only work a five-minute pacing interval while preserving short checks near reserve, forecast exhaustion and unavailable quota; guide agents to batch small steps and avoid redundant checks.
 
 - Use asynchronous bounded retries for Windows state purge after core shutdown (CI Node 24 EPERM).

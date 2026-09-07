@@ -7,6 +7,8 @@ const end = '<!-- codex-quota-guard:end -->';
 const block = `${start}
 ## Quota Guard (managed by its installer)
 
+For healthy weekly-only admission, maxSegmentMinutes limits unchecked work, not total job duration. A long job may span periodic checks: revalidate at checkAgainBy and continue the same job if admitted. Do not shorten estimates, split the job or warn solely because estimatedMinutes exceeds the interval. Atomic operations must still fit the current admission.
+
 Batch related reads, edits and tests into one bounded segment and reuse its admission until checkAgainBy/validUntil. Do not check before individual commands, small steps, progress updates or while merely waiting for external work. An initial job_preflight satisfies the initial quota check; do not pair it with quota_status. Healthy weekly-only bounded_weekly_work is normal admission, not a reason to warn or split into tiny steps.
 
 For every new task in every project, discover the codex_quota_guard MCP tools and check quota with agentProtocol="auto-reset-v1" near the start: use job_preflight when beginning substantial work, or quota_status otherwise. Before each substantial implementation, research, review or build segment, call job_preflight with the actual task ID, absolute workspaceRoot and a stable jobId. Follow the Guard server instructions and returned schema; honor canStartSegment, validUntil, checkAgainBy and checkpointRequired. Briefly report the initial Guard decision, and later only meaningful quota changes or blockers.

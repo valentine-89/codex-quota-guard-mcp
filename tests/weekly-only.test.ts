@@ -28,6 +28,51 @@ test("healthy weekly quota admits grouped work for five minutes without repeated
     assert.ok(low.maxSegmentMinutes !== undefined && low.maxSegmentMinutes <= 0.5);
   } finally { f.close(); }
 });
+test("healthy weekly long jobs span periodic checks without split or checkpoint warnings", async () => {
+  const f = fixture(70);
+  try {
+    const input = { ...f.job(), estimatedMinutes: 60, jobClass: "long" as const };
+    const first = await f.service.jobPreflight(input);
+    assert.equal(first.decision, "allow");
+    assert.equal(first.canStartSegment, true);
+    assert.equal(first.checkpointRequired, false);
+    assert.equal(first.requiredAction, null);
+    assert.equal(first.maxSegmentMinutes, 5);
+    f.advance(299_000);
+    const cached = await f.service.jobPreflight(input);
+    assert.equal(cached.canStartSegment, true);
+    assert.equal(cached.decision, "allow");
+    assert.equal(cached.validUntil, first.validUntil);
+    assert.equal(cached.maxSegmentMinutes, 1 / 60);
+    assert.equal(f.reads(), 1);
+    f.advance(1_000);
+    f.bucket.secondary!.usedPercent = 90;
+    const risk = await f.service.jobPreflight(input);
+    assert.equal(risk.canStartSegment, false);
+    assert.equal(risk.checkpointRequired, true);
+    assert.notEqual(risk.quota.pacing?.primary?.reason, "bounded_weekly_work");
+  } finally { f.close(); }
+});
+
+test("weekly duration admission still blocks high burn and unavailable quota", async () => {
+  const f = fixture(100);
+  const input = { ...f.job(), estimatedMinutes: 60, jobClass: "long" as const };
+  try {
+    assert.equal((await f.service.jobPreflight(input)).canStartSegment, true);
+    f.advance(300_000);
+    f.bucket.secondary!.usedPercent = 40;
+    const burn = await f.service.jobPreflight(input);
+    assert.equal(burn.quota.weekly?.remainingPercent, 60);
+    assert.equal(burn.canStartSegment, false);
+    assert.equal(burn.quota.pacing?.primary?.reason, "short_segment_required");
+    f.advance(300_000);
+    f.fail();
+    const unavailable = await f.service.jobPreflight(input);
+    assert.equal(unavailable.canStartSegment, false);
+    assert.equal(unavailable.decision, "defer");
+  } finally { f.close(); }
+});
+
 function fixture(remaining = 100, wait: number | null = 7 * DAY) {
   const dir = mkdtempSync(join(tmpdir(), "quota-weekly-"));
   const store = new StateStore(join(dir, "state.sqlite"));

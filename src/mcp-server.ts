@@ -7,6 +7,7 @@ import type { CheckpointPayload } from "./types.js";
 import { compactQuota, summaryPreflight, summaryQuota } from "./quota-output.js";
 
 export const SERVER_INSTRUCTIONS = [
+  "For healthy weekly-only bounded_weekly_work, maxSegmentMinutes is the remaining unchecked-work interval, not a total job-duration limit. An allowed job may continue across periodic checks; do not shorten its estimate, split the job, or warn merely because estimatedMinutes exceeds that interval. At the deadline revalidate and continue the same job if admitted. Atomic operations still must fit the current admission.",
   "Before claiming early auto-resume is enabled, require quota_status.monitor.available=true. If unavailable, run the installed scheduler-bridge-doctor and resolve its reported configuration/context issue, then recheck. defer_until_reset.earlyRecovery describes readiness; canSchedule only permits the original timed heartbeat. Never promise early recovery when readiness is false.",
   "Group related reads, edits and tests into one bounded segment. Reuse its valid admission; do not preflight individual commands, small reads, progress messages or external-process waits. Do not pair quota_status with an immediate job_preflight: preflight already checks quota. Recheck at checkAgainBy or before a new substantial segment, not sooner without a meaningful quota change. Healthy weekly-only bounded_weekly_work is normal admission, not a warning to split into tiny steps.",
   "Use workspace paths in the Guard host format; Windows-hosted WSL callers must use the wslpath -w result.",
@@ -103,7 +104,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
       agentProtocol, detail,
       jobId: z.string().min(1).max(256).describe("Stable idempotency identifier for this part-job."),
       taskId, workspaceRoot, jobClass: z.enum(["small", "medium", "long"]),
-      estimatedMinutes: z.number().min(0).max(10_080).optional().describe("Active Codex work duration for this segment, excluding detached GPU/process waiting time."), description: z.string().min(1).max(2_000), laneId,
+      estimatedMinutes: z.number().min(0).max(10_080).optional().describe("Estimated active Codex work, excluding external-process waits. Healthy weekly jobs may span periodic checks; this is not an atomic unchecked-operation duration."), description: z.string().min(1).max(2_000), laneId,
       sessionRole: z.enum(["main", "lightweight"]).optional().describe("Convenience alias: lightweight selects secondary; main selects primary."),
     }),
   }, async (input) => {

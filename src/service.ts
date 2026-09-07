@@ -490,7 +490,10 @@ export class QuotaGuardService {
       maxSegmentMinutes: 0, checkpointRequired: true };
     const pacing = quota.pacing?.[laneId];
     if (pacing) {
-      const mustSplit = input.estimatedMinutes !== undefined && input.estimatedMinutes > pacing.maxSegmentMinutes;
+      // A healthy weekly job may span several check intervals. Its duration is
+      // not an assertion that every model operation is atomic/unchecked.
+      const periodicWeekly = pacing.reason === "bounded_weekly_work" && result.decision === "allow";
+      const mustSplit = !periodicWeekly && input.estimatedMinutes !== undefined && input.estimatedMinutes > pacing.maxSegmentMinutes;
       const exhausted = pacing.maxSegmentMinutes <= 0;
       const enforce = result.decision !== "defer";
       if (result.decision !== "defer" && enforce && (mustSplit || exhausted)) {
@@ -500,7 +503,7 @@ export class QuotaGuardService {
       result = { ...result, canStartSegment: result.decision !== "defer" && !exhausted && !(enforce && mustSplit),
         validUntil: result.decision === "defer" || exhausted || (enforce && mustSplit) ? null : pacing.checkAgainBy,
         checkAgainBy: pacing.checkAgainBy, maxSegmentMinutes: pacing.maxSegmentMinutes,
-        checkpointRequired: result.decision === "defer" || (enforce && (mustSplit || exhausted || input.jobClass === "long")) };
+        checkpointRequired: result.decision === "defer" || (enforce && (mustSplit || exhausted || (!periodicWeekly && input.jobClass === "long"))) };
     }
     const laneBucket = quota.lanes[laneId]?.bucket ?? null;
     const identity = this.identity(quota, cache?.accountFingerprint ?? null, laneBucket);
