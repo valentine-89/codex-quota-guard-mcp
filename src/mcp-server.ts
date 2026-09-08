@@ -8,7 +8,7 @@ import { compactQuota, summaryPreflight, summaryQuota, summaryResume } from "./q
 
 export const SERVER_INSTRUCTIONS = [
   "Use agentProtocol=auto-reset-v1. Preflight substantial work once per admission; batch small steps, avoid paired status/preflight calls and idle polling. Use actual taskId, stable jobId and absolute Guard-host paths (wslpath -w for Windows-hosted WSL).",
-  "Obey canStartSegment, validUntil, checkAgainBy, checkpointRequired and requiredAction. Recheck at tool boundaries when due. Healthy weekly jobs may span checks; maxSegmentMinutes bounds unchecked work, not total job duration. Atomic operations must fit admission; never interrupt unsafe work solely to check.",
+  "Obey canStartSegment, validUntil, checkAgainBy, checkpointRequired and requiredAction. Recheck at tool boundaries when due. Admitted jobs in every quota mode may span checks; maxSegmentMinutes bounds unchecked work, not total job duration. Atomic operations must fit admission; never interrupt unsafe work solely to check.",
   "Use primary unless secondary is explicitly available. Disclose mayConsumeCredits. On defer call defer_until_reset immediately; before resuming call resume_prepare and obey action (continue/wait/exit). Follow each tool's scheduling/reset instructions. Never bypass unavailable quota, force refresh, read auth files, buy resets or create polling heartbeats.",
 ].join(" ");
 
@@ -89,12 +89,12 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   } catch (error) { return failure(error); } });
 
   server.registerTool("job_preflight", {
-    description: "Admit substantial work with agentProtocol=auto-reset-v1 and a stable jobId. Reuse valid admission for small steps. Follow action fields; healthy weekly jobs can exceed the check interval without splitting. On resetCredit.recommendation, follow quota_status reset instructions before more work.",
+    description: "Admit substantial work with agentProtocol=auto-reset-v1 and a stable jobId. Reuse valid admission for small steps. Follow action fields; job estimates can exceed routine check intervals; only near-reserve forecasts require shorter segments. On resetCredit.recommendation, follow quota_status reset instructions before more work.",
     inputSchema: z.object({
       agentProtocol, detail,
       jobId: z.string().min(1).max(256).describe("Stable idempotency identifier for this part-job."),
       taskId, workspaceRoot, jobClass: z.enum(["small", "medium", "long"]),
-      estimatedMinutes: z.number().min(0).max(10_080).optional().describe("Estimated active Codex work, excluding external-process waits. Healthy weekly jobs may span periodic checks; this is not an atomic unchecked-operation duration."), description: z.string().min(1).max(2_000), laneId,
+      estimatedMinutes: z.number().min(0).max(10_080).optional().describe("Estimated active Codex work, excluding external-process waits. Jobs may span periodic checks; this is not an atomic unchecked-operation duration."), description: z.string().min(1).max(2_000), laneId,
       sessionRole: z.enum(["main", "lightweight"]).optional().describe("Convenience alias: lightweight selects secondary; main selects primary."),
     }),
   }, async (input) => {

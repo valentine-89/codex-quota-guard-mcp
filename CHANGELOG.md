@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Fix routine check intervals rejecting long job estimates in 5h/cold-start and credit/advisory modes. Apply duration restriction only to imminent included-quota reserve forecasts; distinguish expired admission from predicted depletion. Add plan/account/deadline and real-blocker admission/resume matrices.
+
 - Breaking: resume_prepare returns action=continue/wait/exit instead of canResume/shouldExit; remove cancellationBestEffort, omit empty resume metadata, and summarize quota. Update callers and generated recovery prompts without legacy aliases.
 
 - Allow ordinary scheduled resume without a deferId through normal quota revalidation, without claiming or cancelling Guard wakes. Explicit Guard defer IDs retain early/replay/ownership checks.

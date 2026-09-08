@@ -31,6 +31,31 @@ function fixture() {
 const job = { jobId: "gpu", taskId: "test", workspaceRoot: "C:\\test", jobClass: "long" as const,
   description: "Active model work before detached GPU launch", estimatedMinutes: 60 };
 
+test("5h jobs span check intervals at cold start, cached deadline and account/plan changes", async () => {
+  for (const plan of ["free", "plus", "pro"]) {
+    const f = fixture();
+    try {
+      f.plan(plan); f.step(0, 0);
+      const first = await f.service.jobPreflight(job);
+      assert.equal(first.decision, "allow");
+      assert.equal(first.canStartSegment, true);
+      assert.equal(first.checkpointRequired, false);
+      f.step(29_000);
+      const cached = await f.service.jobPreflight(job);
+      assert.equal(cached.canStartSegment, true);
+      assert.equal(cached.validUntil, first.validUntil);
+      f.step(1_000);
+      const renewed = await f.service.jobPreflight(job);
+      assert.equal(renewed.canStartSegment, true);
+      assert.notEqual(renewed.validUntil, first.validUntil);
+      f.account("new@example.invalid"); f.step(60_000);
+      const switched = await f.service.jobPreflight(job);
+      assert.equal(switched.quota.pacing?.primary?.confidence, "cold_start");
+      assert.equal(switched.canStartSegment, true);
+    } finally { f.close(); }
+  }
+});
+
 test("mixed 5h/weekly quota forecasts use independent reserves", async () => {
   const f = fixture();
   try {
@@ -48,6 +73,32 @@ test("mixed 5h/weekly quota forecasts use independent reserves", async () => {
     f.step(30_000); f.weekly(100);
     assert.equal((await f.service.jobPreflight(job)).decision, "defer");
   } finally { f.close(); }
+});
+
+test("long estimates never bypass real quota, billing, identity or availability blockers", async () => {
+  const cases = [
+    { name: "full", raw: rawQuota(0), admitted: true },
+    { name: "weekly-low", raw: rawQuota(0, 2_000_000_000, { weeklyUsed: 92 }), admitted: true },
+    { name: "5h-threshold", raw: rawQuota(90), admitted: false },
+    { name: "weekly-empty", raw: rawQuota(0, 2_000_000_000, { weeklyUsed: 100 }), admitted: false },
+    { name: "spend-control", raw: rawQuota(0, 2_000_000_000, { spendControlReached: true }), admitted: false },
+    { name: "individual-empty", raw: rawQuota(0, 2_000_000_000, { individualLimit: { remainingPercent: 0, resetsAt: 2_000_000_000 } }), admitted: false },
+    { name: "backend-block", raw: rawQuota(0, 2_000_000_000, { rateLimitReachedType: "spend_limit" }), admitted: false },
+    { name: "credits", raw: rawQuota(100, 2_000_000_000, { credits: { hasCredits: true, unlimited: false } }), admitted: true },
+  ];
+  for (const c of cases) {
+    const store = new StateStore(":memory:");
+    try {
+      const service = new QuotaGuardService(testConfig("/tmp/admission-matrix.sqlite"), store,
+        { readQuota: async () => c.raw }, { now: () => 1_000 });
+      const result = await service.jobPreflight(job);
+      assert.equal(result.canStartSegment, c.admitted, c.name);
+      const resume = await service.resumePrepare({ workspaceRoot: job.workspaceRoot, taskId: job.taskId, trigger: "automation" });
+      assert.equal(resume.action, c.admitted ? "continue" : "wait", c.name);
+      if (c.name === "credits") assert.equal(result.mayConsumeCredits, true);
+      if (!c.admitted) assert.equal(result.decision, "defer", c.name);
+    } finally { store.close(); }
+  }
 });
 
 test("mixed weekly forecast honors configured reserve independently of Plus/Pro", async () => {

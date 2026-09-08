@@ -493,20 +493,25 @@ export class QuotaGuardService {
       maxSegmentMinutes: 0, checkpointRequired: true };
     const pacing = quota.pacing?.[laneId];
     if (pacing) {
-      // A healthy weekly job may span several check intervals. Its duration is
-      // not an assertion that every model operation is atomic/unchecked.
-      const periodicWeekly = pacing.reason === "bounded_weekly_work" && result.decision !== "defer";
-      const mustSplit = !periodicWeekly && input.estimatedMinutes !== undefined && input.estimatedMinutes > pacing.maxSegmentMinutes;
+      // Job estimates are not atomic-operation durations, regardless of quota
+      // mode or cold-start confidence. Only a real near-reserve forecast makes
+      // the estimate relevant to admission; routine check cadence never does.
+      const forecastRisk = result.quotaPath === "included" && pacing.minutesToReserve !== null && pacing.minutesToReserve <= 10;
+      const mustSplit = forecastRisk && input.estimatedMinutes !== undefined && input.estimatedMinutes > pacing.maxSegmentMinutes;
       const exhausted = pacing.maxSegmentMinutes <= 0;
       const enforce = result.decision !== "defer";
       if (result.decision !== "defer" && enforce && (mustSplit || exhausted)) {
-        result = { ...result, decision: "caution", reason: "The requested segment exceeds the current quota-check deadline.",
-          requiredAction: "Checkpoint before expensive work. Split into bounded segments and recheck by checkAgainBy; do not start an unsplittable model operation beyond this budget." };
+        result = { ...result, decision: "caution", reason: forecastRisk
+          ? "Observed consumption forecasts the quota reserve within ten minutes."
+          : "The quota-check admission has expired; a fresh check is required.",
+          requiredAction: forecastRisk
+            ? "Checkpoint and use a bounded segment within maxSegmentMinutes; recheck when due."
+            : "Recheck at nextRefreshAt, then continue the same job if admitted; do not shorten its estimate." };
       }
       result = { ...result, canStartSegment: result.decision !== "defer" && !exhausted && !(enforce && mustSplit),
         validUntil: result.decision === "defer" || exhausted || (enforce && mustSplit) ? null : pacing.checkAgainBy,
         checkAgainBy: pacing.checkAgainBy, maxSegmentMinutes: pacing.maxSegmentMinutes,
-        checkpointRequired: result.decision === "defer" || (enforce && (mustSplit || exhausted || (!periodicWeekly && input.jobClass === "long"))) };
+        checkpointRequired: result.decision === "defer" || (enforce && (mustSplit || exhausted || (forecastRisk && input.jobClass === "long"))) };
     }
     const laneBucket = quota.lanes[laneId]?.bucket ?? null;
     const identity = this.identity(quota, cache?.accountFingerprint ?? null, laneBucket);
