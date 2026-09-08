@@ -522,7 +522,9 @@ export class StateStore {
   private prepareResumeLocked(key: string, workspaceRoot: string, taskId: string, deferId: string | undefined, trigger: "manual" | "automation", nowMs: number, laneId: QuotaLaneId): ResumeState {
     const workspaceHash = stableHash(resolve(workspaceRoot).toLocaleLowerCase());
     if (trigger === "automation") {
-      if (!deferId) return { shouldExit: true, automationIdsToCancel: [], checkpointId: null, deferIds: [] };
+      // An ordinary user schedule has no Guard defer to claim. Revalidate quota
+      // in the service without firing/superseding any existing Guard wake.
+      if (!deferId) return { shouldExit: false, automationIdsToCancel: [], checkpointId: null, deferIds: [] };
       const record = this.getDefer(key, deferId);
       if (!record || stableHash(record.workspaceRoot.toLocaleLowerCase()) !== workspaceHash
         || record.taskId !== taskId || record.state !== "active" || record.laneId !== laneId

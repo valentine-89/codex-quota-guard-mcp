@@ -379,6 +379,34 @@ test("manual resume supersedes owned automation before controlled unexpected-res
   }
 });
 
+test("ordinary schedules revalidate quota without claiming or cancelling Guard defers", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "quota-ordinary-resume-"));
+  const path = join(directory, "state.sqlite"), store = new StateStore(path);
+  let now = 1_000, used = 100, fail = false;
+  try {
+    const service = new QuotaGuardService(testConfig(path), store, { readQuota: async () => {
+      if (fail) throw Error("offline");
+      return rawQuota(used, 2_000);
+    } }, { now: () => now });
+    const deferred = await service.deferUntilReset({ workspaceRoot: directory, taskId: "task",
+      objective: "resume", completed: [], pending: ["work"] });
+    const input = { workspaceRoot: directory, taskId: "task", trigger: "automation" as const };
+    assert.equal((await service.resumePrepare(input)).canResume, false);
+    used = 20; now = 62_000;
+    for (let i = 0; i < 2; i++) {
+      const resumed = await service.resumePrepare(input);
+      assert.equal(resumed.shouldExit, false);
+      assert.equal(resumed.canResume, true);
+      assert.deepEqual(resumed.deferIds, []);
+      assert.deepEqual(resumed.automationIdsToCancel, []);
+    }
+    const early = await service.resumePrepare({ ...input, deferId: deferred.defer.id });
+    assert.equal(early.shouldExit, true, "ordinary schedules must not consume or authorize an early Guard wake");
+    fail = true; now += 900_000;
+    assert.equal((await service.resumePrepare(input)).canResume, false);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("a superseded heartbeat exits without reading quota", async () => {
   const directory = mkdtempSync(join(tmpdir(), "quota-guard-heartbeat-exit-"));
   const path = join(directory, "state.sqlite");

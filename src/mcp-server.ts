@@ -150,7 +150,7 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   }, async ({ deferId, automationId }) => { try { return result(service.attachAutomation(deferId, automationId)); } catch (error) { return failure(error); } });
 
   server.registerTool("resume_prepare", {
-    description: "Call before manually resuming a deferred task or as the first heartbeat action. Manual resume supersedes matching quota-guard defers before quota revalidation and returns only owned automation IDs for best-effort deletion.",
+    description: "Call before resumed work. Ordinary schedules: trigger=automation without deferId checks quota without changing Guard wakes. Guard recovery schedules must pass their exact deferId; never omit it to bypass an invalid/early/replayed wake. Manual resume supersedes matching Guard defers. Obey shouldExit/canResume, then job_preflight.",
     inputSchema: z.object({ workspaceRoot, taskId, deferId: z.string().uuid().optional(), trigger: z.enum(["manual", "automation"]), laneId }),
   }, async (input) => {
     try {
