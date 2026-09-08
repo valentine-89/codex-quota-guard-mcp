@@ -621,12 +621,13 @@ export class QuotaGuardService {
   }
 
   async resumePrepare(input: { workspaceRoot: string; taskId: string; deferId?: string; trigger: "manual" | "automation"; laneId?: QuotaLaneId }): Promise<{
-    shouldExit: boolean; automationIdsToCancel: string[]; cancellationBestEffort: true;
-    checkpointId: string | null; deferIds: string[]; quota: QuotaSnapshot | null; canResume: boolean; laneId: QuotaLaneId;
+    action: "continue" | "wait" | "exit"; automationIdsToCancel: string[];
+    checkpointId: string | null; deferIds: string[]; quota: QuotaSnapshot | null; laneId: QuotaLaneId;
   }> {
     const laneId = input.laneId ?? "primary";
     const prepared = this.store.prepareResume(this.key, input.workspaceRoot, input.taskId, input.deferId, input.trigger, this.now(), laneId);
-    if (prepared.shouldExit) return { ...prepared, cancellationBestEffort: true, quota: null, canResume: false, laneId };
+    const { shouldExit, ...resume } = prepared;
+    if (shouldExit) return { ...resume, action: "exit", quota: null, laneId };
     const cached = this.store.getCache(this.key);
     const age = cached ? this.now() - cached.fetchedAtMs : Number.POSITIVE_INFINITY;
     const recommendation = cached?.snapshot.lanes?.[laneId]?.recommendation ?? cached?.snapshot.recommendation;
@@ -641,7 +642,7 @@ export class QuotaGuardService {
     const identitySafe = !!current?.accountFingerprint && current.snapshot.fetchedAt === quota.fetchedAt;
     const canResume = identitySafe && !quota.stale && !quota.refreshInProgress && !quota.error
       && preflightLane(this.decorate(quota, current.accountFingerprint, jobClass), jobClass, this.config, laneId, this.now()).decision !== "defer";
-    return { ...prepared, cancellationBestEffort: true, quota, canResume, laneId };
+    return { ...resume, quota, action: canResume ? "continue" : "wait", laneId };
   }
 
   private cachedStatus(snapshot: QuotaSnapshot, fingerprint: string | null, nextRefreshAtMs: number, stale: boolean, backoffUntilMs: number | null): QuotaSnapshot {

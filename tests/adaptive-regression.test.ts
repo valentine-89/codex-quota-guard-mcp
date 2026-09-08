@@ -141,7 +141,7 @@ test("manual secondary resume leaves primary and unrelated tasks deferred", asyn
     f.service.attachAutomation(secondary.deferId, "secondary-heartbeat");
     f.service.attachAutomation(other.deferId, "unrelated-heartbeat");
     const result = await f.service.resumePrepare({ workspaceRoot: f.directory, taskId: "task", trigger: "manual", laneId: "secondary" });
-    assert.equal(result.canResume, true);
+    assert.equal(result.action, "continue");
     assert.deepEqual(result.automationIdsToCancel, ["secondary-heartbeat"]);
     assert.equal(f.store.getDefer(profileKey(f.config.codexHome), main.deferId)?.state, "active");
     assert.equal(f.store.getDefer(profileKey(f.config.codexHome), other.deferId)?.state, "active");
@@ -278,7 +278,7 @@ test("manual resume supersedes before quota IO and obeys shared backoff", async 
     const result = await f.service.resumePrepare({ workspaceRoot: f.directory, taskId: "task", trigger: "manual" });
     assert.equal(f.store.getDefer(profileKey(f.config.codexHome), deferred.deferId)?.state, "superseded");
     assert.deepEqual(result.automationIdsToCancel, ["owned"]); assert.equal(f.reads(), 1);
-    assert.equal(result.canResume, false);
+    assert.equal(result.action, "wait");
   } finally { f.close(); }
 });
 
@@ -318,8 +318,8 @@ test("account switching recovers an old defer with the new account profile, with
     assert.ok(ticket);
     assert.equal(f.store.monitor.dispatch(key, ticket, deferred.deferId, "expected", 301_000), true);
     const resumed = await f.service.resumePrepare({ workspaceRoot: f.directory, taskId: "task", deferId: deferred.deferId, trigger: "automation" });
-    assert.equal(resumed.shouldExit, false);
-    assert.equal(resumed.canResume, true);
+    assert.equal(resumed.action, "continue");
+    assert.equal(resumed.action, "continue");
     // Returning to the original account restores its persisted override.
     f.setRaw(rawQuota(20, 20_000)); f.advance();
     assert.equal((await f.service.quotaProfile("get")).userOverridePercent, 25);
@@ -344,7 +344,7 @@ test("logout and insufficient new-account primary quota never wake primary from 
     assert.equal(f.service.monitorCanResume(deferred.defer, quota), false);
     assert.equal(f.store.getDefer(profileKey(f.config.codexHome), deferred.deferId)?.state, "active");
     const result = await f.service.resumePrepare({ workspaceRoot: f.directory, taskId: "task", trigger: "manual" });
-    assert.equal(result.canResume, false);
+    assert.equal(result.action, "wait");
   } finally { f.close(); }
 });
 

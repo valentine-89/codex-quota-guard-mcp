@@ -60,7 +60,7 @@ test("two monitors share a durable five-minute deadline and recover once after a
     assert.equal(f.reads(), 2); assert.equal(f.writes(), 1);
     assert.equal(f.first.monitor.list(f.key)[0]?.stage, "scheduled");
     const resume = await f.service.resumePrepare({ workspaceRoot: f.dir, taskId: "task", deferId: f.deferred.deferId, trigger: "automation" });
-    assert.equal(resume.canResume, true); assert.equal(resume.shouldExit, false);
+    assert.equal(resume.action, "continue"); assert.equal(resume.action, "continue");
     // Cleanup runs before next five-minute quota deadline, with no extra read.
     await Promise.all([f.monitor.tick(), f.competing.tick()]);
     assert.equal(f.cancels(), 1); assert.equal(f.reads(), 2);

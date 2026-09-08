@@ -391,19 +391,19 @@ test("ordinary schedules revalidate quota without claiming or cancelling Guard d
     const deferred = await service.deferUntilReset({ workspaceRoot: directory, taskId: "task",
       objective: "resume", completed: [], pending: ["work"] });
     const input = { workspaceRoot: directory, taskId: "task", trigger: "automation" as const };
-    assert.equal((await service.resumePrepare(input)).canResume, false);
+    assert.equal((await service.resumePrepare(input)).action, "wait");
     used = 20; now = 62_000;
     for (let i = 0; i < 2; i++) {
       const resumed = await service.resumePrepare(input);
-      assert.equal(resumed.shouldExit, false);
-      assert.equal(resumed.canResume, true);
+      assert.equal(resumed.action, "continue");
+      assert.equal(resumed.action, "continue");
       assert.deepEqual(resumed.deferIds, []);
       assert.deepEqual(resumed.automationIdsToCancel, []);
     }
     const early = await service.resumePrepare({ ...input, deferId: deferred.defer.id });
-    assert.equal(early.shouldExit, true, "ordinary schedules must not consume or authorize an early Guard wake");
+    assert.equal(early.action, "exit", "ordinary schedules must not consume or authorize an early Guard wake");
     fail = true; now += 900_000;
-    assert.equal((await service.resumePrepare(input)).canResume, false);
+    assert.equal((await service.resumePrepare(input)).action, "wait");
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -421,7 +421,7 @@ test("a superseded heartbeat exits without reading quota", async () => {
     await service.resumePrepare({ workspaceRoot: directory, taskId: "task", trigger: "manual" });
     const heartbeat = await service.resumePrepare({ workspaceRoot: directory, taskId: "task",
       deferId: deferred.defer.id, trigger: "automation" });
-    assert.equal(heartbeat.shouldExit, true);
+    assert.equal(heartbeat.action, "exit");
     assert.equal(heartbeat.quota, null);
     assert.equal(reads, 1);
   } finally {

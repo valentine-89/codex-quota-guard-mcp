@@ -11,7 +11,7 @@ import type { WakeState } from "./ipc-state.js";
 export interface SchedulingStatus { mechanism: "desktop" | "ipc" | "unavailable"; state: WakeState; reason: string | null }
 export function ipcResumePrompt(defer: StoredDefer): string {
   return `Quota Guard scheduled resume. First call resume_prepare with ${JSON.stringify({ workspaceRoot: defer.workspaceRoot,
-    taskId: defer.taskId, deferId: defer.id, laneId: defer.laneId, trigger: "automation" })}. Stop if shouldExit=true or canResume=false. Otherwise retrieve the saved checkpoint and continue its authorized work. Do not create an unrelated task.`;
+    taskId: defer.taskId, deferId: defer.id, laneId: defer.laneId, trigger: "automation" })}. Proceed only if action=continue; wait means quota-blocked, exit means invalid/consumed wake. Otherwise retrieve the saved checkpoint and continue its authorized work. Do not create an unrelated task.`;
 }
 type Binding = { context: TaskContext; cwd: string; verifiedAt: number };
 /** One timer in the existing core; durable schedules never keep the process alive. */

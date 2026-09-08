@@ -156,7 +156,7 @@ test("resume after an overnight break reads fresh quota and starts cold", async 
     f.step(30_000, 40); await f.service.quotaStatusForRequest();
     f.step(86_400_000, 10);
     const resume = await f.service.resumePrepare({ workspaceRoot: job.workspaceRoot, taskId: job.taskId, trigger: "manual" });
-    assert.equal(resume.canResume, true);
+    assert.equal(resume.action, "continue");
     assert.equal(resume.quota?.source, "codex-app-server");
     assert.equal(resume.quota?.pacing?.primary?.confidence, "cold_start");
     assert.equal(resume.quota?.fiveHour?.remainingPercent, 90);

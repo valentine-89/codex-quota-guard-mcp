@@ -1,9 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactQuota, summaryPreflight, summaryQuota } from "../src/quota-output.js";
+import { compactQuota, summaryPreflight, summaryQuota, summaryResume } from "../src/quota-output.js";
 import { QuotaGuardService } from "../src/service.js";
 import { StateStore } from "../src/store.js";
 import { rawQuota, testConfig } from "./helpers.js";
+
+test("resume wire format has one action, compact quota and no obsolete or empty metadata", async () => {
+  const store = new StateStore(":memory:");
+  const service = new QuotaGuardService(testConfig("/tmp/resume-output.sqlite"), store,
+    { readQuota: async () => rawQuota(20) }, { now: () => 1_000 });
+  try {
+    const full = await service.resumePrepare({ workspaceRoot: "/tmp", taskId: "task", trigger: "automation" });
+    const wire = summaryResume(full);
+    assert.equal(wire.action, "continue");
+    for (const field of ["canResume", "shouldExit", "cancellationBestEffort", "deferIds", "checkpointId", "automationIdsToCancel"]) {
+      assert.equal(Object.hasOwn(wire, field), false);
+    }
+    assert.ok(JSON.stringify(wire).length < JSON.stringify(full).length / 2);
+    assert.deepEqual(summaryResume({ ...full, action: "exit", quota: null }), { action: "exit", laneId: "primary" });
+    const wait = summaryResume({ ...full, action: "wait", checkpointId: "checkpoint", deferIds: ["defer"], automationIdsToCancel: ["owned"] });
+    assert.equal(wait.action, "wait");
+    assert.deepEqual(wait.automationIdsToCancel, ["owned"]);
+    assert.equal(wait.checkpointId, "checkpoint");
+  } finally { store.close(); }
+});
 
 test("summary uses active secondary pacing and retains secondary billing constraints", async () => {
   for (const activeSecondary of [false, true]) {

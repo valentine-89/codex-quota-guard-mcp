@@ -1,4 +1,16 @@
 import type { JobPreflightResult, QuotaLaneStatus, QuotaSnapshot, QuotaWindow } from "./types.js";
+import type { QuotaGuardService } from "./service.js";
+
+export function summaryResume(value: Awaited<ReturnType<QuotaGuardService["resumePrepare"]>>) {
+  return {
+    action: value.action,
+    laneId: value.laneId,
+    ...(value.checkpointId ? { checkpointId: value.checkpointId } : {}),
+    ...(value.deferIds.length ? { deferIds: value.deferIds } : {}),
+    ...(value.automationIdsToCancel.length ? { automationIdsToCancel: value.automationIdsToCancel } : {}),
+    ...(value.quota ? { quota: summaryQuota(value.quota) } : {}),
+  };
+}
 
 type CompactLane = Pick<QuotaLaneStatus, "available" | "reason"> & Partial<QuotaLaneStatus> & { quotaRef?: "root" };
 

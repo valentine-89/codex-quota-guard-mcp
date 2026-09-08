@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Breaking: resume_prepare returns action=continue/wait/exit instead of canResume/shouldExit; remove cancellationBestEffort, omit empty resume metadata, and summarize quota. Update callers and generated recovery prompts without legacy aliases.
+
 - Allow ordinary scheduled resume without a deferId through normal quota revalidation, without claiming or cancelling Guard wakes. Explicit Guard defer IDs retain early/replay/ownership checks.
 
 - Fix mixed 5h/weekly forecasts applying the 5h reserve to the weekly window. Each weekly forecast now uses the configured weekly reserve; actual exhaustion and imminent depletion still block admission.

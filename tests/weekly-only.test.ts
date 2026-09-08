@@ -220,7 +220,7 @@ test("old5h defer resumes on new weekly-only account; primary never borrows rese
     const old = await f.service.deferUntilReset(f.checkpoint);
     f.bucket.primary = null; f.raw.account.account!.email = "changed@example.invalid"; f.advance(60_001);
     const resume = await f.service.resumePrepare({ workspaceRoot: f.dir, taskId: "task", trigger: "manual" });
-    assert.equal(resume.canResume, true);
+    assert.equal(resume.action, "continue");
     assert.equal(f.store.getDefer(profileKey(f.config.codexHome), old.deferId)?.state, "superseded");
     assert.equal((await f.service.jobPreflight({ ...f.job(), laneId: "secondary", jobClass: "small" })).decision, "defer");
   } finally { f.close(); }

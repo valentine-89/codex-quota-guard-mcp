@@ -59,7 +59,7 @@ test("IPC defer schedules without Desktop automation and early resume is proof-b
     f.advance(); await Promise.all([f.scheduler.tick(), f.scheduler.tick()]); assert.equal(f.writes(), 1);
     const wake = f.store.ipc.list(f.key)[0]!; assert.equal(wake.turnId, "turn-id");
     const resume = await f.service.resumePrepare({ workspaceRoot: f.dir, taskId: f.context.taskId, deferId: wake.deferId, trigger: "automation" });
-    assert.equal(resume.shouldExit, false); assert.equal(resume.canResume, true);
+    assert.equal(resume.action, "continue"); assert.equal(resume.action, "continue");
     assert.equal(f.store.ipc.list(f.key)[0]?.state, "completed");
     f.advance(); await f.scheduler.tick(); assert.equal(f.writes(), 1);
   } finally { await f.close(); }

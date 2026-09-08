@@ -42,8 +42,8 @@ try {
   if (values.resume || values["job-id"]) assert.ok(taskId, "Current real CODEX_THREAD_ID is required");
   if (values.resume) {
     const resume = await call("resume_prepare", { workspaceRoot: root, taskId, laneId: "primary", trigger: "manual" });
-    console.log(JSON.stringify({ resume: { canResume: resume.canResume, automationIdsToCancel: resume.automationIdsToCancel } }));
-    assert.equal(resume.canResume, true);
+    console.log(JSON.stringify({ resume: { action: resume.action, automationIdsToCancel: resume.automationIdsToCancel } }));
+    assert.equal(resume.action, "continue");
   }
   const quota = await call("quota_status", { agentProtocol: "auto-reset-v1", detail: "full" });
   assert.equal(quota.stale, false); assert.equal(quota.refreshInProgress, false);

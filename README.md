@@ -80,7 +80,8 @@ The public contract has eight tools:
 - `quota_status`: call near the beginning of long work with `agentProtocol="auto-reset-v1"`.
 - `job_preflight`: call with the same protocol marker and a stable `jobId` before each substantial token-consuming segment.
 - `quota_profile`, `checkpoint_create`, `checkpoint_get`, `defer_until_reset`, `defer_automation_attach`, and `resume_prepare` support policy and controlled resume.
-- Ordinary schedules call `resume_prepare(trigger="automation")` without `deferId`: quota is revalidated, no Guard wake is consumed/cancelled. Guard recovery schedules must supply the original `deferId`; invalid, early or replayed wakes still exit. Both paths must honor `canResume` before preflight.
+- Ordinary schedules call `resume_prepare(trigger="automation")` without `deferId`: quota is revalidated, no Guard wake is consumed/cancelled. Guard recovery schedules must supply the original `deferId`; invalid, early or replayed wakes still exit. Both paths must honor `action` (`continue`, `wait`, `exit`) before preflight.
+- Resume output uses only `action`: `continue` permits preflight, `wait` blocks work pending quota recovery, `exit` discards an invalid/early/consumed Guard wake. The old `canResume`, `shouldExit`, and `cancellationBestEffort` fields are removed without aliases. Empty metadata is omitted; non-empty `automationIdsToCancel` still means best-effort cancellation of only those owned IDs. Quota is summarized; use `quota_status(detail="full")` for diagnostics. Update saved caller prompts to this contract.
 
 Do not call the Guard before every shell command, small file read, or trivial edit. No tool accepts credentials, a force-refresh flag, or a model name.
 

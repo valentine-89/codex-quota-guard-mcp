@@ -4,12 +4,12 @@ import type { QuotaGuardService } from "./service.js";
 import { GuardError, toGuardError } from "./errors.js";
 import { isHostWorkspaceRoot } from "./host-path.js";
 import type { CheckpointPayload } from "./types.js";
-import { compactQuota, summaryPreflight, summaryQuota } from "./quota-output.js";
+import { compactQuota, summaryPreflight, summaryQuota, summaryResume } from "./quota-output.js";
 
 export const SERVER_INSTRUCTIONS = [
   "Use agentProtocol=auto-reset-v1. Preflight substantial work once per admission; batch small steps, avoid paired status/preflight calls and idle polling. Use actual taskId, stable jobId and absolute Guard-host paths (wslpath -w for Windows-hosted WSL).",
   "Obey canStartSegment, validUntil, checkAgainBy, checkpointRequired and requiredAction. Recheck at tool boundaries when due. Healthy weekly jobs may span checks; maxSegmentMinutes bounds unchecked work, not total job duration. Atomic operations must fit admission; never interrupt unsafe work solely to check.",
-  "Use primary unless secondary is explicitly available. Disclose mayConsumeCredits. On defer call defer_until_reset immediately; before resuming call resume_prepare and obey canResume/shouldExit. Follow each tool's scheduling/reset instructions. Never bypass unavailable quota, force refresh, read auth files, buy resets or create polling heartbeats.",
+  "Use primary unless secondary is explicitly available. Disclose mayConsumeCredits. On defer call defer_until_reset immediately; before resuming call resume_prepare and obey action (continue/wait/exit). Follow each tool's scheduling/reset instructions. Never bypass unavailable quota, force refresh, read auth files, buy resets or create polling heartbeats.",
 ].join(" ");
 
 const agentProtocol = z.string().optional().describe("Required breaking contract marker: auto-reset-v1.");
@@ -150,12 +150,12 @@ export function createMcpServer(service: QuotaGuardService): McpServer {
   }, async ({ deferId, automationId }) => { try { return result(service.attachAutomation(deferId, automationId)); } catch (error) { return failure(error); } });
 
   server.registerTool("resume_prepare", {
-    description: "Call before resumed work. Ordinary schedules: trigger=automation without deferId checks quota without changing Guard wakes. Guard recovery schedules must pass their exact deferId; never omit it to bypass an invalid/early/replayed wake. Manual resume supersedes matching Guard defers. Obey shouldExit/canResume, then job_preflight.",
+    description: "Call before resumed work. Ordinary schedules: trigger=automation without deferId checks quota without changing Guard wakes. Guard recovery schedules must pass their exact deferId; never omit it to bypass an invalid/early/replayed wake. Manual resume supersedes matching Guard defers. Only action=continue permits job_preflight; wait means quota-blocked, exit means invalid/consumed wake. Cancellation IDs are best-effort.",
     inputSchema: z.object({ workspaceRoot, taskId, deferId: z.string().uuid().optional(), trigger: z.enum(["manual", "automation"]), laneId }),
   }, async (input) => {
     try {
-      return result(await service.resumePrepare({ workspaceRoot: input.workspaceRoot, taskId: input.taskId,
-        trigger: input.trigger, ...(input.deferId === undefined ? {} : { deferId: input.deferId }), ...(input.laneId ? { laneId: input.laneId } : {}) }));
+      return result(summaryResume(await service.resumePrepare({ workspaceRoot: input.workspaceRoot, taskId: input.taskId,
+        trigger: input.trigger, ...(input.deferId === undefined ? {} : { deferId: input.deferId }), ...(input.laneId ? { laneId: input.laneId } : {}) })));
     } catch (error) { return failure(error); }
   });
 
