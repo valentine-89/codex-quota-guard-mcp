@@ -7,7 +7,7 @@ const end = '<!-- codex-quota-guard:end -->';
 const block = `${start}
 ## Quota Guard
 
-At task start, discover codex_quota_guard. Use job_preflight before substantial work (actual taskId, absolute workspaceRoot, stable jobId, agentProtocol="auto-reset-v1"); quota_status only for status-only work. On deferred resume, call resume_prepare first. Follow returned decisions/actions and recheck deadlines; batch small steps, reuse valid admission, never idle-poll. Report only the initial decision and meaningful changes/blockers. If Guard is unavailable, stop substantial work; never bypass it, read auth files, force refresh, buy resets or create extra polling heartbeats.
+At task start, discover codex_quota_guard. Use job_preflight before substantial work (actual taskId, absolute workspaceRoot, stable jobId, agentProtocol="auto-reset-v1"); quota_status only for status-only work. On deferred resume, call resume_prepare first. Follow returned decisions/actions and recheck deadlines; batch small steps, reuse valid admission, never idle-poll. Report only the initial decision and meaningful changes/blockers. If Guard is unavailable, disclose it and continue; repair when in scope, then resume checks. Never read auth files, force refresh, buy resets or create extra polling heartbeats.
 ${end}
 `;
 

@@ -141,7 +141,7 @@ export async function startHttpServer(createProtocol: () => McpServer, options: 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? 0, "127.0.0.1", () => { server.off("error", reject); resolve(); });
-  });
+  }).catch(async error => { await protocolHandler.close().catch(() => undefined); throw error; });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("HTTP_BIND_FAILED");
   port = address.port;

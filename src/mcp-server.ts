@@ -9,7 +9,7 @@ import { compactQuota, summaryPreflight, summaryQuota, summaryResume } from "./q
 export const SERVER_INSTRUCTIONS = [
   "Use agentProtocol=auto-reset-v1. Preflight substantial work once per admission; batch small steps, avoid paired status/preflight calls and idle polling. Use actual taskId, stable jobId and absolute Guard-host paths (wslpath -w for Windows-hosted WSL).",
   "Obey canStartSegment, validUntil, checkAgainBy, checkpointRequired and requiredAction. Recheck at tool boundaries when due. Admitted jobs in every quota mode may span checks; maxSegmentMinutes bounds unchecked work, not total job duration. Atomic operations must fit admission; never interrupt unsafe work solely to check.",
-  "Use primary unless secondary is explicitly available. Disclose mayConsumeCredits. On defer call defer_until_reset immediately; before resuming call resume_prepare and obey action (continue/wait/exit). Follow each tool's scheduling/reset instructions. Never bypass unavailable quota, force refresh, read auth files, buy resets or create polling heartbeats.",
+  "Use primary unless secondary is explicitly available. Disclose mayConsumeCredits. On defer call defer_until_reset immediately; before resuming call resume_prepare and obey action (continue/wait/exit). Follow each tool's scheduling/reset instructions. If Guard is unavailable, disclose it and continue; repair when in scope, then resume checks. Never force refresh, read auth files, buy resets or create polling heartbeats.",
 ].join(" ");
 
 const agentProtocol = z.string().optional().describe("Required breaking contract marker: auto-reset-v1.");

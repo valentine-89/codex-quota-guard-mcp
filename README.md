@@ -1,5 +1,7 @@
 # Codex Quota Guard MCP 2.3.0
 
+If Guard is unavailable, report that quota is unverified and continue the user's work; repair Guard when requested and resume checks after recovery. A managed core automatically replaces a saved loopback port denied by the OS, preserving its identity and stored state. Occupied or unauthenticated endpoints are not replaced.
+
 Windows VS Code tasks can now schedule quota resumes through the existing extension IPC owner. See [IPC resume](docs/IPC_RESUME.md). Desktop heartbeat creation and attachment remain unchanged. IPC schedules persist across app closure but run only after the same task reconnects.
 
 Desktop scheduler paths are runtime-only. Guard discovers current Desktop resources at core startup and revalidates on context binding. No saved server path or legacy server environment override is used. The host may provide current CODEX_ELECTRON_RESOURCES_PATH in memory; ambiguous discovery fails closed. Stable MCP capability and task context must pass before monitor availability.

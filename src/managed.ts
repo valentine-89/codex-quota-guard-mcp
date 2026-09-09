@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, writeFileSync, renameSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -54,7 +55,7 @@ export async function managedHealth(settings: ManagedSettings): Promise<Record<s
 }
 
 export async function ensureManagedCore(path: string): Promise<ManagedSettings> {
-  const settings = readManagedSettings(path);
+  let settings = readManagedSettings(path);
   if (await managedHealth(settings)) return settings;
   const child = spawn(settings.nodeExecutable, [settings.coreEntrypoint], {
     detached: true, windowsHide: true, stdio: "ignore",
@@ -68,9 +69,32 @@ export async function ensureManagedCore(path: string): Promise<ManagedSettings> 
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline && !failed) {
     await delay(100);
+    settings = readManagedSettings(path);
     if (await managedHealth(settings)) return settings;
   }
   throw new Error("MANAGED_CORE_START_FAILED");
+}
+
+/** Caller holds the core singleton lock. Only a denied bind may relocate the endpoint. */
+export async function bindManagedPort<T extends { url: string; close(): Promise<void> }>(
+  path: string | undefined, settings: ManagedSettings | undefined, port: number,
+  bind: (port: number) => Promise<T>,
+): Promise<T> {
+  try { return await bind(port); } catch (error) {
+    if (!path || !settings || (error as NodeJS.ErrnoException).code !== "EACCES") throw error;
+  }
+  const original = readFileSync(path, "utf8");
+  if (JSON.stringify(readManagedSettings(path)) !== JSON.stringify(settings)) throw new Error("MANAGED_SETTINGS_CHANGED");
+  const server = await bind(0);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    const updated = { ...settings, port: Number(new URL(server.url).port) };
+    writeFileSync(temporary, JSON.stringify(updated), { flag: "wx", mode: 0o600 });
+    if (readFileSync(path, "utf8") !== original) throw new Error("MANAGED_SETTINGS_CHANGED");
+    renameSync(temporary, path);
+    return server;
+  } catch (error) { await server.close(); throw error; }
+  finally { rmSync(temporary, { force: true }); }
 }
 
 /** Connector forwards only a capability it already received from desktop, in memory. */

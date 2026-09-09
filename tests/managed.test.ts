@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { ensureManagedCore, managedCoreCanStop, managedHealth, readManagedSettings, type ManagedSettings } from "../src/managed.js";
+import { bindManagedPort, ensureManagedCore, managedCoreCanStop, managedHealth, readManagedSettings, type ManagedSettings } from "../src/managed.js";
 import { RenewableSchedulerRpc } from "../src/scheduler.js";
 import { startHttpServer } from "../src/http-server.js";
 
@@ -26,6 +26,30 @@ async function fixture() {
   writeFileSync(path, JSON.stringify(settings), { mode: 0o600 });
   return { directory, path, settings, close: () => rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }) };
 }
+
+test("denied managed port relocates without rotating identity; other failures stay closed", async () => {
+  const f = await fixture();
+  const calls: number[] = [];
+  try {
+    await bindManagedPort(f.path, f.settings, f.settings.port, async port => {
+      calls.push(port);
+      if (port) throw Object.assign(new Error("denied"), { code: "EACCES" });
+      return { url: "http://127.0.0.1:52000/mcp", close: async () => {} };
+    });
+    assert.deepEqual(calls, [f.settings.port, 0]);
+    assert.deepEqual(readManagedSettings(f.path), { ...f.settings, port: 52000 });
+    for (const code of ["EADDRINUSE", "UNKNOWN"]) {
+      let attempts = 0;
+      await assert.rejects(bindManagedPort(f.path, f.settings, f.settings.port, async () => {
+        attempts++; throw Object.assign(new Error(code), { code });
+      }), new RegExp(code));
+      assert.equal(attempts, 1);
+    }
+    await assert.rejects(bindManagedPort(undefined, undefined, 52000, async () => {
+      throw Object.assign(new Error("denied"), { code: "EACCES" });
+    }), /denied/);
+  } finally { await f.close(); }
+});
 
 test("managed settings validate private files, token and endpoints", async () => {
   const f = await fixture();

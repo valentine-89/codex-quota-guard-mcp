@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { profileKey } from "./store.js";
 import { acquireCoreLock } from "./core-lock.js";
-import { managedCoreCanStop, readManagedSettings } from "./managed.js";
+import { bindManagedPort, managedCoreCanStop, readManagedSettings } from "./managed.js";
 import { ClientLeaseRegistry } from "./client-leases.js";
 
 async function main() {
@@ -28,12 +28,13 @@ async function main() {
   runtime.monitor.setLiveClients(() => clientLeases.snapshot().liveClients > 0);
   let closeHttp: (() => Promise<void>) | undefined;
   try {
-    const http = await startHttpServer(() => createMcpServer(runtime.service), { token, port, clientLeases,
+    const http = await bindManagedPort(process.env.CODEX_QUOTA_GUARD_MANAGED_SETTINGS, managed, port,
+      bindPort => startHttpServer(() => createMcpServer(runtime.service), { token, port: bindPort, clientLeases,
       bindTask: context => runtime.ipc.bind(context),
       onClientLeaseChange: () => runtime.monitor.wake(),
       diagnostics: () => ({ pid: process.pid, mode: "shared-http", installationId: managed?.installationId ?? null,
         monitor: runtime.service.monitorStatus() }),
-      ...(managed ? { bindDesktop: runtime.bindDesktop } : {}) });
+      ...(managed ? { bindDesktop: runtime.bindDesktop } : {}) }));
     closeHttp = http.close;
     // Server lifetime is independent of protocol discovery, EOF, and any one client disconnect.
     runtime.monitor.start();
@@ -62,7 +63,7 @@ async function main() {
       idleTimer.unref();
     }
     // No secret, capability, account data, or checkpoint contents in startup logs.
-    process.stderr.write(`quota-guard: shared HTTP core ready on port ${port}\n`);
+    process.stderr.write(`quota-guard: shared HTTP core ready on port ${new URL(http.url).port}\n`);
   } catch (error) { await closeHttp?.(); await runtime.close(); release(); throw error; }
 }
 main().catch(() => { process.stderr.write("quota-guard: HTTP core startup failed; verify token, port, configuration and singleton ownership\n"); process.exitCode = 1; });
