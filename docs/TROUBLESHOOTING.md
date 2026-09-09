@@ -6,7 +6,9 @@ Codex is signed out, using API-key/Bedrock/another provider, or did not return a
 
 ## `MANAGED_CORE_START_FAILED`
 
-Confirm Node 22.13+, absolute paths in the private runtime settings, and that the selected loopback port is not occupied. A wrong listener is never terminated automatically. Rerun `npm run build` and `node scripts/install.mjs`.
+Confirm Node 22.13+, absolute paths in private runtime settings, and singleton ownership. Current main automatically relocates a managed port denied with `EACCES` (for example Windows reserved port ranges); do not elevate or remove OS port reservations. Occupied or wrong listeners are never terminated automatically. After updating, run `npm run build` and reconnect the registered connector. Reinstall only if registration or installation paths need repair. A startup timeout can also mean a slow or failed child; it is not proof of a port conflict.
+
+When Guard is unavailable, disclose that quota is unverified and continue the user's work. Repair when in scope, then resume checks; do not read auth files, force refresh or create polling heartbeats.
 
 ## Connector unavailable after install
 
@@ -53,7 +55,7 @@ After building, run `node scripts/scheduler-bridge-doctor.mjs` inside the task e
 
 Runtime resolves current Desktop resources on startup and binding renewal. Ambiguous discovery fails closed. Normal rediscovery does not rotate the core endpoint or require reinstalling Guard. Recheck monitor.available after repairing the host context. Existing baseline-less records are not silently adopted.
 
-Quota/checkpoint tools remain usable without scheduling. `monitor.available` describes early-recovery monitoring, while scheduled resume requires the host to create and attach a heartbeat. `canSchedule=true` only validates reset timing; it does not prove the host has a scheduler. If the host lacks that tool, report the saved checkpoint and manual resume time. No alternate auto-resume mechanism is provided.
+Quota/checkpoint tools remain usable without scheduling. Desktop resume requires host heartbeat creation and attachment; verified IPC scheduling instead returns its own persisted wake and requires neither. `canSchedule=true` validates timing only, not scheduler availability. Follow `scheduling.mechanism` and readiness. If neither mechanism is available, report the checkpoint and manual resume time.
 
 ## Safe diagnostics
 

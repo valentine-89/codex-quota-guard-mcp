@@ -1,5 +1,7 @@
 # Codex Quota Guard MCP 2.3.0
 
+These docs describe current `main`, including [Unreleased changes](CHANGELOG.md#unreleased). Package metadata remains `2.3.0`; newer contracts and fixes do not describe the original 2.3.0 tag. Record the commit when comparing installations.
+
 If Guard is unavailable, report that quota is unverified and continue the user's work; repair Guard when requested and resume checks after recovery. A managed core automatically replaces a saved loopback port denied by the OS, preserving its identity and stored state. Occupied or unauthenticated endpoints are not replaced.
 
 Windows VS Code tasks can now schedule quota resumes through the existing extension IPC owner. See [IPC resume](docs/IPC_RESUME.md). Desktop heartbeat creation and attachment remain unchanged. IPC schedules persist across app closure but run only after the same task reconnects.
