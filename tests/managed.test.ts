@@ -73,26 +73,44 @@ test("core shutdown policy depends on connectors, requests and scheduler dispatc
   assert.equal(managedCoreCanStop(300_000, 300_000, 0, true), false);
 });
 
-test("six bootstrap contenders elect one shared core, survive disconnect and recover after crash", { timeout: 30_000 }, async () => {
+test("six bootstrap contenders elect one shared core, survive disconnect and recover after crash", { timeout: 60_000 }, async () => {
   const f = await fixture();
   let pid: number | undefined;
+  const startContenders = async () => {
+    const pending = Array.from({ length: 6 }, () => ensureManagedCore(f.path));
+    // A real connector leases the first ready core. Do not let it idle-exit while
+    // slower contenders are still starting on a shared runner.
+    const settled = Promise.allSettled(pending);
+    try {
+      const settings = await Promise.any(pending);
+      const health = await managedHealth(settings);
+      pid = health!.pid as number;
+      const response = await fetch(`http://127.0.0.1:${settings.port}/client-lease`, {
+        method: "POST", headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "register" }), signal: AbortSignal.timeout(5_000),
+      });
+      assert.equal(response.status, 200);
+    } finally { await settled; }
+    for (const result of await settled) if (result.status === "rejected") throw result.reason;
+  };
   try {
-    await Promise.all(Array.from({ length: 6 }, () => ensureManagedCore(f.path)));
+    await startContenders();
     const first = await managedHealth(f.settings);
     pid = first!.pid as number;
     assert.equal(first!.mode, "shared-http");
     await ensureManagedCore(f.path);
     assert.equal((await managedHealth(f.settings))!.pid, pid);
     // This PID came from the authenticated, isolated fixture, not process enumeration.
+    const previousPid = pid;
     process.kill(pid);
     for (let i = 0; i < 100; i++) {
       // A just-killed keep-alive socket can reset before the listener disappears.
       try { if (await managedHealth(f.settings) === null) break; } catch { /* Wait for confirmed absence. */ }
       await delay(20);
     }
-    await Promise.all(Array.from({ length: 6 }, () => ensureManagedCore(f.path)));
+    await startContenders();
     const second = await managedHealth(f.settings);
-    assert.notEqual(second!.pid, pid);
+    assert.notEqual(second!.pid, previousPid);
     pid = second!.pid as number;
   } finally {
     if (pid) { try { process.kill(pid); } catch { /* Already exited. */ } }

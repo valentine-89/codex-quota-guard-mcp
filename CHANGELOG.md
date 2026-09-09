@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Stabilize subprocess CI regressions: test built startup code, limit file concurrency to two, hold a real client lease while bootstrap contenders settle, and budget lock-child readiness separately. Repeat crash/bootstrap/connector checks on Windows and macOS Intel. Production startup timeout remains 20 seconds.
+
 - Align API, resume, architecture and troubleshooting docs with current main; distinguish unreleased contracts from the original 2.3.0 tag.
 
 - Recover managed startup when Windows denies the saved port: bind an OS-selected loopback port under the singleton lock and atomically publish it to connectors. Do not relocate on occupied or untrusted endpoints. Unavailable Guard no longer prohibits work or repairs in managed/MCP guidance.

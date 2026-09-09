@@ -289,22 +289,22 @@ test("stdio connector retains modern discovery and reports missing settings only
   assert.equal(stderr, "quota-guard[settings]: CONNECTOR_SETTINGS_MISSING\n");
 });
 
-test("OS releases singleton lock after the owning process crashes", { timeout: 10_000 }, async () => {
+test("OS releases singleton lock after the owning process crashes", { timeout: 30_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "quota-lock-crash-"));
   const path = join(dir, "lock.sqlite");
-  // Native type stripping avoids creating a compiler worker in the deliberately killed child.
-  const source = `import { acquireCoreLock } from './src/core-lock.ts'; globalThis.lockRelease=acquireCoreLock(process.env.QUOTA_LOCK_TEST_PATH); process.send('locked'); setInterval(()=>{},1000);`;
-  const child = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", source], {
+  // Use the shipped JavaScript: startup timing must not include a TypeScript loader.
+  const source = `import { acquireCoreLock } from './dist/core-lock.js'; globalThis.lockRelease=acquireCoreLock(process.env.QUOTA_LOCK_TEST_PATH); process.send('locked'); setInterval(()=>{},1000);`;
+  const child = spawn(process.execPath, ["--input-type=module", "-e", source], {
     env: { ...process.env, NODE_TEST_CONTEXT: undefined, QUOTA_LOCK_TEST_PATH: path }, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"],
   });
   // Wait for IPC/process handles too, not only exit notification (Windows cleanup).
   const exit = new Promise(resolve => child.once("close", resolve));
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(Error("lock owner did not become ready")), 5_000);
+      const timer = setTimeout(() => reject(Error(`lock owner did not become ready within 20s (pid=${child.pid}, exit=${child.exitCode})`)), 20_000);
       child.on("message", message => { if (message === "locked") { clearTimeout(timer); resolve(); } });
       child.once("error", error => { clearTimeout(timer); reject(error); });
-      child.once("exit", () => { clearTimeout(timer); reject(Error("lock owner exited before readiness")); });
+      child.once("exit", (code, signal) => { clearTimeout(timer); reject(Error(`lock owner exited before readiness (code=${code}, signal=${signal})`)); });
     });
     assert.throws(() => acquireCoreLock(path), /ALREADY_RUNNING/);
     child.kill(); await exit;

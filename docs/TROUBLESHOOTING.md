@@ -59,6 +59,8 @@ Quota/checkpoint tools remain usable without scheduling. Desktop resume requires
 
 ## Safe diagnostics
 
+`npm test` builds the runtime first and runs at most two test files concurrently. Bootstrap subprocesses use that built JavaScript, matching installed startup; the six-contender test holds a client lease as soon as a core is ready. This avoids TypeScript startup overhead and idle shutdown races in the test harness. Production core readiness still has a 20-second maximum wait, not a fixed startup delay. CI repeats subprocess regressions on Windows and macOS Intel.
+
 Run `npm run check`, `npm run acceptance:install`, `npm audit`, and inspect only authenticated health/settings paths. Never paste runtime bearer values, auth files, full prompts, responses, or live checkpoints into an issue.
 
 ## VS Code IPC

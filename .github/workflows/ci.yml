@@ -24,13 +24,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - name: Repeat connector lifecycle regression on macOS Intel
-        if: matrix.os == 'macos-15-intel'
+      - name: Repeat subprocess lifecycle regressions
+        if: matrix.os == 'macos-15-intel' || matrix.os == 'windows-latest'
         run: >-
           node --input-type=module -e "import { execFileSync } from 'node:child_process';
           for (let i = 1; i <= 5; i++) {
-          console.log('Connector lifecycle repetition ' + i + '/5');
-          execFileSync(process.execPath, ['--import', 'tsx', '--test', '--test-name-pattern', 'wire-only stdio connector', 'tests/http.test.ts'], { stdio: 'inherit', timeout: 60000 }); }"
+          console.log('Subprocess lifecycle repetition ' + i + '/5');
+          execFileSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', '--test-name-pattern', 'wire-only stdio connector|OS releases singleton|six bootstrap contenders', 'tests/http.test.ts', 'tests/managed.test.ts'], { stdio: 'inherit', timeout: 120000 }); }"
       - run: npm audit --audit-level=high
       - run: npm run acceptance:install
       - run: npm pack --dry-run
