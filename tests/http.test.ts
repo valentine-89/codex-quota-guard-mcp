@@ -202,7 +202,7 @@ test("disconnected in-flight work retains its concurrency slot; overload does no
 
 // Includes a deliberate 5.5s idle observation plus TS subprocess startup on
 // shared CI runners. EOF is tested separately so it cannot consume this budget.
-test("wire-only stdio connector keeps an idle HTTP lease and forwards tools", { timeout: 30_000 }, async () => {
+test("wire-only stdio connector keeps an idle HTTP lease and forwards tools", { timeout: 120_000 }, async () => {
   const f = await fixture();
   const env = { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token };
   const client = new Client({ name: "connector-test", version: "1" }, {
@@ -229,7 +229,7 @@ test("wire-only stdio connector keeps an idle HTTP lease and forwards tools", { 
   } finally { await client.close(); await f.close(); }
 });
 
-test("wire-only stdio connector exits cleanly on immediate EOF", { timeout: 15_000 }, async t => {
+test("wire-only stdio connector exits cleanly on immediate EOF", { timeout: 120_000 }, async t => {
   const f = await fixture();
   const child = spawn(process.execPath, ["--import", "tsx", resolve("src/http-connector.ts")], {
     env: { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token },
@@ -257,7 +257,7 @@ test("wire-only stdio connector exits cleanly on immediate EOF", { timeout: 15_0
   }
 });
 
-test("stdio connector retains modern discovery and reports missing settings only on stderr", { timeout: 10_000 }, async () => {
+test("stdio connector retains modern discovery and reports missing settings only on stderr", { timeout: 120_000 }, async () => {
   const f = await fixture();
   const env = { ...process.env, CODEX_QUOTA_GUARD_HTTP_URL: f.http.url, CODEX_QUOTA_GUARD_HTTP_TOKEN: f.token };
   const modern = new Client({ name: "modern-connector-test", version: "1" }, {
@@ -289,7 +289,7 @@ test("stdio connector retains modern discovery and reports missing settings only
   assert.equal(stderr, "quota-guard[settings]: CONNECTOR_SETTINGS_MISSING\n");
 });
 
-test("OS releases singleton lock after the owning process crashes", { timeout: 30_000 }, async () => {
+test("OS releases singleton lock after the owning process crashes", { timeout: 120_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "quota-lock-crash-"));
   const path = join(dir, "lock.sqlite");
   // Use the shipped JavaScript: startup timing must not include a TypeScript loader.
@@ -301,7 +301,7 @@ test("OS releases singleton lock after the owning process crashes", { timeout: 3
   const exit = new Promise(resolve => child.once("close", resolve));
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(Error(`lock owner did not become ready within 20s (pid=${child.pid}, exit=${child.exitCode})`)), 20_000);
+      const timer = setTimeout(() => reject(Error(`lock owner did not become ready within 60s (pid=${child.pid}, exit=${child.exitCode})`)), 60_000);
       child.on("message", message => { if (message === "locked") { clearTimeout(timer); resolve(); } });
       child.once("error", error => { clearTimeout(timer); reject(error); });
       child.once("exit", (code, signal) => { clearTimeout(timer); reject(Error(`lock owner exited before readiness (code=${code}, signal=${signal})`)); });

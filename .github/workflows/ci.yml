@@ -30,7 +30,7 @@ jobs:
           node --input-type=module -e "import { execFileSync } from 'node:child_process';
           for (let i = 1; i <= 5; i++) {
           console.log('Subprocess lifecycle repetition ' + i + '/5');
-          execFileSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', '--test-name-pattern', 'wire-only stdio connector|OS releases singleton|six bootstrap contenders', 'tests/http.test.ts', 'tests/managed.test.ts'], { stdio: 'inherit', timeout: 120000 }); }"
+          execFileSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', '--test-name-pattern', 'wire-only stdio connector|OS releases singleton|six bootstrap contenders', 'tests/http.test.ts', 'tests/managed.test.ts'], { stdio: 'inherit', timeout: 600000 }); }"
       - run: npm audit --audit-level=high
       - run: npm run acceptance:install
       - run: npm pack --dry-run

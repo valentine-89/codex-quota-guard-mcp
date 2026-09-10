@@ -10,6 +10,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { bindManagedPort, ensureManagedCore, managedCoreCanStop, managedHealth, readManagedSettings, type ManagedSettings } from "../src/managed.js";
 import { RenewableSchedulerRpc } from "../src/scheduler.js";
 import { startHttpServer } from "../src/http-server.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { McpServer } from "@modelcontextprotocol/server";
+import { ClientLeaseRegistry } from "../src/client-leases.js";
 
 async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "quota-managed-"));
@@ -51,6 +55,34 @@ test("denied managed port relocates without rotating identity; other failures st
   } finally { await f.close(); }
 });
 
+test("idle connector retries failed scheduler binding without a tool call", { timeout: 120_000 }, async () => {
+  const f = await fixture();
+  let attempts = 0, recovered!: () => void;
+  const recovery = new Promise<void>(resolve => { recovered = resolve; });
+  const leases = new ClientLeaseRegistry(60_000);
+  const server = await startHttpServer(() => new McpServer({ name: "idle-test", version: "1" }), {
+    port: f.settings.port, token: f.settings.token, clientLeases: leases,
+    diagnostics: () => ({ installationId: f.settings.installationId }),
+    bindDesktop: async () => {
+      assert.equal(leases.snapshot().liveClients, 1, "lease must precede scheduler negotiation");
+      if (++attempts === 1) return false; recovered(); return true;
+    },
+  });
+  const client = new Client({ name: "idle-test-client", version: "1" }, { versionNegotiation: { mode: "legacy" } });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve("dist/connector.js")],
+      env: { ...process.env, CODEX_QUOTA_GUARD_MANAGED_SETTINGS: f.path,
+        CODEX_THREAD_ID: randomUUID(), CODEX_APP_TOOLS_PIPE_PATH: "test-inherited-pipe" }, stderr: "pipe" }));
+    assert.equal(attempts, 1);
+    assert.equal(leases.snapshot().liveClients, 1);
+    await Promise.race([recovery, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(Error("idle scheduler did not recover")), 90_000);
+    })]);
+    assert.ok(attempts >= 2);
+  } finally { clearTimeout(timer); await client.close(); await server.close(); await f.close(); }
+});
+
 test("managed settings validate private files, token and endpoints", async () => {
   const f = await fixture();
   try {
@@ -73,7 +105,7 @@ test("core shutdown policy depends on connectors, requests and scheduler dispatc
   assert.equal(managedCoreCanStop(300_000, 300_000, 0, true), false);
 });
 
-test("six bootstrap contenders elect one shared core, survive disconnect and recover after crash", { timeout: 60_000 }, async () => {
+test("six bootstrap contenders elect one shared core, survive disconnect and recover after crash", { timeout: 120_000 }, async () => {
   const f = await fixture();
   let pid: number | undefined;
   const startContenders = async () => {
@@ -182,5 +214,21 @@ test("Linux scheduler binding accepts only a verified absolute Unix socket path"
     assert.equal(await rpc.bind("/run/user/1000/codex-app-tools.sock", task), true);
     assert.equal(rpc.available(), true);
     assert.deepEqual(events, ["/run/user/1000/codex-app-tools.sock"]);
+  } finally { await rpc.close(); }
+});
+
+test("rejected task rebind preserves other verified tasks on the same scheduler", async () => {
+  const good = randomUUID(), bad = randomUUID();
+  const rpc = new RenewableSchedulerRpc(resolve("src/scheduler.ts"), () => ({
+    ready: async () => {}, close: async () => {}, call: async () => true,
+    verifyContext: async task => { if (task === bad) throw new Error("SCHEDULER_CONTEXT_REJECTED"); },
+  }), "win32");
+  try {
+    assert.equal(await rpc.bind("\\\\.\\pipe\\shared", good), true);
+    assert.equal(await rpc.bind("\\\\.\\pipe\\shared", bad), false);
+    assert.equal(rpc.availableForTask(good), true);
+    assert.equal(rpc.availableForTask(bad), false);
+    assert.equal(await rpc.bind("\\\\.\\pipe\\shared", "invalid"), false);
+    assert.equal(rpc.availableForTask(good), true);
   } finally { await rpc.close(); }
 });

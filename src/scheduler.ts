@@ -135,7 +135,11 @@ export class RenewableSchedulerRpc implements SchedulerRpc {
       }
       if (pipePath === this.verifiedPipe && nextPath === this.serverPath && this.available()) {
         try { await this.current.verifyContext(taskId); this.verifiedTasks.add(taskId); return true; }
-        catch { this.verifiedPipe = undefined; }
+        catch {
+          // One rejected task must not discard the verified context of other
+          // waiting tasks sharing this core. Revalidate that task on retry.
+          this.verifiedTasks.delete(taskId);
+        }
       }
       const environment = { ...process.env, CODEX_APP_TOOLS_PIPE_PATH: pipePath };
       const candidate = this.resolveServer ? new DesktopSchedulerRpc(nextPath, environment) : this.factory(environment);

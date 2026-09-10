@@ -77,13 +77,13 @@ async function main() {
       process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN = managed.token;
       // Failure retains quota tools and the original automation schedule; no capability guessing.
       if (checkBinding) {
-        await bindManagedDesktop(managed, taskId).catch(() => false);
-        boundTask = taskId; lastBind = Date.now();
+        const accepted = await bindManagedDesktop(managed, taskId).catch(() => false);
+        if (accepted) { boundTask = taskId; lastBind = Date.now(); }
       }
     })().finally(() => { preparing = undefined; });
     return preparing;
   };
-  await prepare(process.env.CODEX_THREAD_ID, true);
+  await prepare(process.env.CODEX_THREAD_ID, false);
   const url = new URL(process.env.CODEX_QUOTA_GUARD_HTTP_URL ?? "");
   token = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? "";
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== "/mcp"
@@ -94,11 +94,25 @@ async function main() {
   // The open connector is the live host connection, even before the first tool call.
   // Pending recovery must survive Desktop restart without requiring another chat.
   if (!await updateLease("register")) throw new Error("CLIENT_LEASE_REGISTER_FAILED");
+  // Protect the core's five-second idle lifetime before potentially slow
+  // Desktop capability negotiation (which may take up to twenty seconds).
+  await prepare(process.env.CODEX_THREAD_ID, true);
+  let renewing = false;
   const leaseTimer = setInterval(() => {
-    if (!leaseId) return;
-    void updateLease("renew").then(async renewed => {
+    if (renewing) return;
+    renewing = true;
+    // Renew scheduler context while idle too: account recovery must not depend
+    // on another chat/tool call after a failed startup binding or core restart.
+    void prepare(process.env.CODEX_THREAD_ID, true).then(async () => {
+      const latestUrl = new URL(process.env.CODEX_QUOTA_GUARD_HTTP_URL ?? url.href);
+      const latestToken = process.env.CODEX_QUOTA_GUARD_HTTP_TOKEN ?? token;
+      if (latestUrl.href !== url.href || latestToken !== token) {
+        url.href = latestUrl.href; token = latestToken;
+        leaseTarget.url = new URL("/client-lease", url); leaseId = undefined;
+      }
+      const renewed = leaseId ? await updateLease("renew") : false;
       if (!renewed) { leaseId = undefined; await updateLease("register"); }
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => { renewing = false; });
   }, 20_000);
   leaseTimer.unref();
   const lifetime = new ProcessLifetime({ input: process.stdin, output: process.stdout,

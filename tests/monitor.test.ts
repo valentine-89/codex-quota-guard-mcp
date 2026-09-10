@@ -68,6 +68,24 @@ test("two monitors share a durable five-minute deadline and recover once after a
   } finally { await f.close(); }
 });
 
+test("five-hour defer recovers on new weekly-only account with 21 percent once scheduler returns", async () => {
+  const f = await fixture();
+  try {
+    const next = rawQuota(0, 20_000, { weeklyUsed: 79 });
+    next.account.account!.email = "weekly-new@example.invalid";
+    Object.assign(next.rateLimits.rateLimits!, { primary: null });
+    f.setRaw(next); f.setEnabled(false); f.advance();
+    await f.monitor.tick(); assert.equal(f.writes(), 0);
+    f.setEnabled(true); await f.monitor.tick();
+    assert.equal(f.writes(), 1);
+    const quota = await f.service.quotaStatus();
+    assert.equal(quota.fiveHour, null);
+    assert.equal(quota.profile.effectiveThresholdPercent, 3);
+    assert.equal(quota.weekly?.remainingPercent, 21);
+    await f.monitor.tick(); assert.equal(f.writes(), 1);
+  } finally { await f.close(); }
+});
+
 test("pending defer does not poll or dispatch without a live connector", async () => {
   const f = await fixture();
   try {

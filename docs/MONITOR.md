@@ -2,6 +2,10 @@
 
 Early recovery exists only to notice a quota reset earlier than the original heartbeat. Its interval is five minutes and there is no public force-refresh input.
 
+Recovery also recognizes a different signed-in account or quota mode through normal fresh quota reads. Weekly-only allowance uses its own threshold, not a conversion to five-hour percent. Connector lease maintenance retries failed Desktop binding while idle (without reading quota); a successful binding is revalidated at most once per minute. The lease is registered before slow Desktop negotiation. One rejected task does not invalidate other verified tasks.
+
+Desktop recovery requires an attached, owned heartbeat with a captured unchanged definition. A saved checkpoint/defer without an attached heartbeat cannot wake a task. `stage=scheduled` means the host schedule update was confirmed, not that a task turn has started; `resume_prepare` confirms consumption. No extra polling heartbeat is created.
+
 A poll is allowed only when all three conditions hold:
 
 1. At least one connector lease is alive.

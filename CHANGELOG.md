@@ -4,6 +4,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Restore early recovery without another chat: acquire the connector lease before Desktop negotiation, retry missing scheduler binding during idle lease maintenance, and preserve other verified tasks when one task rebind fails. Regress five-hour-to-weekly recovery at 21% without percent conversion.
+
+- Allow slow/shared CI runners: subprocess test envelopes are two minutes, lock-child readiness is one minute, and each regression batch allows ten minutes; these are upper bounds, not required delays or production quota deadlines.
+
 - Stabilize subprocess CI regressions: test built startup code, limit file concurrency to two, hold a real client lease while bootstrap contenders settle, and budget lock-child readiness separately. Repeat crash/bootstrap/connector checks on Windows and macOS Intel. Production startup timeout remains 20 seconds.
 
 - Align API, resume, architecture and troubleshooting docs with current main; distinguish unreleased contracts from the original 2.3.0 tag.
