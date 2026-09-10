@@ -18,11 +18,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      - run: node scripts/check-version.mjs
+        env:
+          VERSION_BASE_REVISION: ${{ github.event.before || github.event.pull_request.base.sha }}
       - run: npm run check
       - name: Repeat subprocess lifecycle regressions
         if: matrix.os == 'macos-15-intel' || matrix.os == 'windows-latest'

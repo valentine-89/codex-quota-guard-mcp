@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { VERSION } from "./version.js";
 import { createInterface } from "node:readline";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import { existsSync } from "node:fs";
@@ -140,7 +141,7 @@ export class CodexAppServerClient {
 
     try {
       await call("initialize", {
-        clientInfo: { name: "codex-quota-guard-mcp", version: "2.3.0" },
+        clientInfo: { name: "codex-quota-guard-mcp", version: VERSION },
         capabilities: { experimentalApi: false },
       });
       child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);

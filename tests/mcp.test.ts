@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { VERSION } from "../src/version.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
     readQuota: async () => { reads++; return rawQuota(25); },
   }, { now: () => 1_000 });
   const handler = createMcpHandler(() => createMcpServer(service), { legacy: "stateless" });
-  const client = new Client({ name: "quota-guard-test", version: "2.3.0" }, {
+  const client = new Client({ name: "quota-guard-test", version: VERSION }, {
     versionNegotiation: { mode: "legacy" },
   });
   const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
@@ -35,7 +36,7 @@ test("stable MCP discovery exposes instructions, adaptive profile, and defer lif
   try {
     await client.connect(transport);
     assert.equal(client.getProtocolEra(), "legacy");
-    assert.equal(client.getServerVersion()?.version, "2.3.0");
+    assert.equal(client.getServerVersion()?.version, VERSION);
     assert.equal(client.getInstructions(), SERVER_INSTRUCTIONS);
     assert.match(client.getInstructions() ?? "", /checkAgainBy/);
     assert.match(client.getInstructions() ?? "", /never interrupt unsafe work/);

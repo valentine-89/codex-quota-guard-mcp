@@ -1,6 +1,6 @@
-# Codex Quota Guard MCP 2.3.0
+# Codex Quota Guard MCP 3.0.0
 
-These docs describe current `main`, including [Unreleased changes](CHANGELOG.md#unreleased). Package metadata remains `2.3.0`; newer contracts and fixes do not describe the original 2.3.0 tag. Record the commit when comparing installations.
+These docs describe 3.0.0. See [changelog](CHANGELOG.md#300---2026-09-10) for the breaking resume contract and recovery fixes. Every update pushed to GitHub must increase the package version and synchronize the lockfile, runtime and current documentation.
 
 If Guard is unavailable, report that quota is unverified and continue the user's work; repair Guard when requested and resume checks after recovery. A managed core automatically replaces a saved loopback port denied by the OS, preserving its identity and stored state. Occupied or unauthenticated endpoints are not replaced.
 

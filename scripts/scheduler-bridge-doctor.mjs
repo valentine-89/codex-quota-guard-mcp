@@ -1,5 +1,6 @@
 // Read-only capability probe. Never calls a tool, starts a turn, or edits an automation.
 import { schedulerCapabilityReason } from "../dist/scheduler-capability.js";
+import { VERSION } from "../dist/version.js";
 import { discoverSchedulerServer } from "../dist/scheduler-discovery.js";
 import { isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
@@ -30,7 +31,7 @@ if (process.platform === "win32" && !process.env.CODEX_APP_TOOLS_PIPE_PATH && pr
   report({ ok: false, reason: "Desktop app-tools capability is absent from this process environment." });
   process.exitCode = 2;
 } else {
-  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: "2.3.0" }, {
+  const client = new Client({ name: "quota-guard-scheduler-bridge-doctor", version: VERSION }, {
     versionNegotiation: { mode: "legacy" },
   });
   // Use the shipped server; do not reimplement its pipe protocol or peer authorization.

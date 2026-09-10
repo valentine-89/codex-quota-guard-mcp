@@ -4,6 +4,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-10
+
+- Synchronize package, runtime and documentation versions; CI rejects a GitHub update without a version increase. Major bump accounts for the breaking resume response below.
+
 - Restore early recovery without another chat: acquire the connector lease before Desktop negotiation, retry missing scheduler binding during idle lease maintenance, and preserve other verified tasks when one task rebind fails. Regress five-hour-to-weekly recovery at 21% without percent conversion.
 
 - Allow slow/shared CI runners: subprocess test envelopes are two minutes, lock-child readiness is one minute, and each regression batch allows ten minutes; these are upper bounds, not required delays or production quota deadlines.

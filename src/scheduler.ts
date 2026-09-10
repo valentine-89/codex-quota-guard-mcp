@@ -1,4 +1,5 @@
 import { schedulerCapabilityReason, schedulerFailureReason } from "./scheduler-capability.js";
+import { VERSION } from "./version.js";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
@@ -37,7 +38,7 @@ export class DesktopSchedulerRpc implements SchedulerRpc {
   constructor(private readonly serverPath: string, private readonly environment: NodeJS.ProcessEnv = process.env) {}
   async ready(): Promise<void> {
     if (this.client) return;
-    const client = new Client({ name: "quota-guard-monitor", version: "2.3.0" }, {
+    const client = new Client({ name: "quota-guard-monitor", version: VERSION }, {
       versionNegotiation: { mode: "legacy" },
     });
     const transport = new StdioClientTransport({ command: process.execPath, args: [this.serverPath],

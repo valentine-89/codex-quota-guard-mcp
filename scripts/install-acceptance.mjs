@@ -1,5 +1,6 @@
 // Disposable cross-platform install and concurrent-connector lifecycle acceptance.
 import assert from "node:assert/strict";
+import { VERSION } from "../dist/version.js";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync, cpSync, symlinkSync, rmSync, realpathSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -49,7 +50,7 @@ try {
   const upgradedSettings = readManagedSettings(second.settingsPath);
   assert.notEqual(upgradedSettings.installationId, firstSettings.installationId);
   assert.equal(upgradedSettings.guardConfig, firstSettings.guardConfig);
-  assert.equal(upgradedSettings.releaseVersion, "2.3.0");
+  assert.equal(upgradedSettings.releaseVersion, VERSION);
   const third = runJson("scripts/install.mjs");
   assert.equal(readManagedSettings(third.settingsPath).installationId, upgradedSettings.installationId);
   const optedIn = runJson("scripts/install.mjs", ["--enable-auto-reset"]);

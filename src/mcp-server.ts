@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/server";
+import { VERSION } from "./version.js";
 import * as z from "zod/v4";
 import type { QuotaGuardService } from "./service.js";
 import { GuardError, toGuardError } from "./errors.js";
@@ -67,7 +68,7 @@ function failure(error: unknown) {
 
 export function createMcpServer(service: QuotaGuardService): McpServer {
   const server = new McpServer(
-    { name: "codex-quota-guard-mcp", version: "2.3.0" },
+    { name: "codex-quota-guard-mcp", version: VERSION },
     { instructions: SERVER_INSTRUCTIONS },
   );
 

@@ -1,6 +1,6 @@
-# MCP API 2.3.0
+# MCP API 3.0.0
 
-Applies to current `main`: package 2.3.0 plus [Unreleased changes](../CHANGELOG.md#unreleased), not necessarily the original tag.
+Applies to version 3.0.0. Resume callers must use `action`; the removed fields have no compatibility aliases.
 
 `quota_status` and `job_preflight` default to `detail="summary"`, normally around 1 KB of JSON. `detail="full"` returns the original data; `detail="compact"` keeps deduplicated quota data (including nested preflight quota). Selecting detail never forces a refresh. Responses omit the redundant `format` marker; no compatibility marker or fallback is provided.
 
